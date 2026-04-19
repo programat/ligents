@@ -2,6 +2,9 @@
 
 local-first macOS menu bar app for people who juggle multiple AI subscriptions and want to know which profile still has room before they hit the wall
 
+<img width="546" height="457" alt="image" src="https://github.com/user-attachments/assets/37030591-d585-4b9f-bb02-208fb9ea1786" />
+
+
 ## Why
 
 If you keep separate accounts for work, side projects, clients, or experiments, the annoying part is not the login itself. The annoying part is remembering which profile is close to the limit, which one resets soon, and which session belongs to what.
