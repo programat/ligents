@@ -33,6 +33,7 @@ struct LigentsApp: App {
         Window("Settings", id: "settings") {
             SettingsView(model: model)
         }
-        .defaultSize(width: 980, height: 680)
+        .defaultSize(width: SettingsWindowMetrics.idealWidth, height: SettingsWindowMetrics.idealHeight)
+        .windowResizability(.contentSize)
     }
 }

@@ -1,7 +1,7 @@
 import Foundation
 
 struct AppPersistenceState: Codable, Equatable {
-    static let currentSchemaVersion = 1
+    static let currentSchemaVersion = 2
 
     var schemaVersion: Int
     var profiles: [ProviderProfile]
@@ -10,6 +10,8 @@ struct AppPersistenceState: Codable, Equatable {
     var snapshots: [SyncSnapshot]
     var authSessions: [BrowserAuthSession]
     var notificationDedupStates: [NotificationDedupState]
+    var pingSettings: [PingAutomationSettings]
+    var pingExecutionRecords: [PingExecutionRecord]
 
     static var empty: AppPersistenceState {
         AppPersistenceState(
@@ -19,7 +21,9 @@ struct AppPersistenceState: Codable, Equatable {
             alertRules: [],
             snapshots: [],
             authSessions: [],
-            notificationDedupStates: []
+            notificationDedupStates: [],
+            pingSettings: [],
+            pingExecutionRecords: []
         )
     }
 }
@@ -29,6 +33,10 @@ private struct LegacyAppPersistenceState: Codable {
     var usageWindows: [UsageWindow]
     var alertRules: [AlertRule]
     var snapshots: [SyncSnapshot]
+    var authSessions: [BrowserAuthSession]?
+    var notificationDedupStates: [NotificationDedupState]?
+    var pingSettings: [PingAutomationSettings]?
+    var pingExecutionRecords: [PingExecutionRecord]?
 }
 
 struct PersistenceStore {
@@ -87,8 +95,10 @@ struct PersistenceStore {
                 usageWindows: legacy.usageWindows,
                 alertRules: legacy.alertRules,
                 snapshots: legacy.snapshots,
-                authSessions: [],
-                notificationDedupStates: []
+                authSessions: legacy.authSessions ?? [],
+                notificationDedupStates: legacy.notificationDedupStates ?? [],
+                pingSettings: legacy.pingSettings ?? [],
+                pingExecutionRecords: legacy.pingExecutionRecords ?? []
             )
         }
     }

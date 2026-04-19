@@ -10,6 +10,8 @@ final class AppModel {
     var snapshots: [SyncSnapshot] = []
     var authSessions: [BrowserAuthSession] = []
     var notificationDedupStates: [NotificationDedupState] = []
+    var pingSettings: [PingAutomationSettings] = []
+    var pingExecutionRecords: [PingExecutionRecord] = []
     var syncMessage = "Ready"
     var notificationsAuthorized = false
     var notificationAuthorizationState: NotificationAuthorizationState = .unknown
@@ -20,8 +22,13 @@ final class AppModel {
     private let authBroker = BrowserAuthBroker()
     private let notificationRuleEvaluator = NotificationRuleEvaluator()
     private let notificationService = NotificationService()
+    private let pingPlanner = PingPlanner()
+    private let wakeSchedulePlanner = WakeSchedulePlanner()
+    private let pingExecutor = PingExecutor()
     private var activeCodexLoginClients: [UUID: CodexAppServerClient] = [:]
     private var codexLoginMonitorTasks: [UUID: Task<Void, Never>] = [:]
+    private var activePingTasks: [UUID: Task<Void, Never>] = [:]
+    private var idleSleepActivity: NSObjectProtocol?
 
     init() {
         load()
@@ -31,8 +38,11 @@ final class AppModel {
         AppActivationCenter.shared.handler = { [weak self] in
             self?.applicationDidBecomeActive()
         }
+        configureWakeObserver()
         refreshNotificationAuthorizationStatus()
         startBackgroundRefreshLoop()
+        startBackgroundPingLoop()
+        refreshIdleSleepActivity()
     }
 
     func usageWindows(for profileId: UUID) -> [UsageWindow] {
@@ -77,6 +87,33 @@ final class AppModel {
             .first
     }
 
+    func pingSettings(for profile: ProviderProfile) -> PingAutomationSettings {
+        pingSettings.first { $0.profileId == profile.id } ?? PingAutomationSettings.makeDefault(for: profile.id)
+    }
+
+    func pingPlan(for profile: ProviderProfile) -> PingSchedulePlan {
+        pingPlanner.plan(
+            profile: profile,
+            sessionWindow: preferredWindow(for: profile.id, kind: .session),
+            settings: pingSettings(for: profile)
+        )
+    }
+
+    func latestPingExecution(for profileId: UUID) -> PingExecutionRecord? {
+        pingExecutionRecords
+            .filter { $0.profileId == profileId }
+            .sorted { $0.startedAt > $1.startedAt }
+            .first
+    }
+
+    func nextWakeScheduleSuggestion() -> WakeScheduleCommandSuggestion? {
+        wakeSchedulePlanner.nextWakeSuggestion(
+            plans: profiles
+                .filter { $0.provider == .codex && $0.status != .disabled }
+                .map { ($0, pingPlan(for: $0)) }
+        )
+    }
+
     @discardableResult
     func createProfile(
         provider: Provider,
@@ -113,6 +150,7 @@ final class AppModel {
 
         profiles.append(profile)
         alertRules.append(contentsOf: defaultAlertRules(for: profileId))
+        pingSettings.append(PingAutomationSettings.makeDefault(for: profileId))
         syncMessage = "Added \(profile.displayName)"
         save()
         return profile
@@ -147,6 +185,7 @@ final class AppModel {
         profiles.append(profile)
         usageWindows.append(contentsOf: windows)
         alertRules.append(contentsOf: defaultAlertRules(for: profileId))
+        pingSettings.append(PingAutomationSettings.makeDefault(for: profileId))
         snapshots.append(
             SyncSnapshot(
                 id: UUID(),
@@ -165,6 +204,8 @@ final class AppModel {
     func removeProfile(_ profile: ProviderProfile) {
         codexLoginMonitorTasks[profile.id]?.cancel()
         codexLoginMonitorTasks.removeValue(forKey: profile.id)
+        activePingTasks[profile.id]?.cancel()
+        activePingTasks.removeValue(forKey: profile.id)
         activeCodexLoginClients.removeValue(forKey: profile.id)
         if profile.provider == .codex,
            let codexHome = storageResolver.paths(for: profile).codexHome {
@@ -187,8 +228,11 @@ final class AppModel {
         snapshots.removeAll { $0.profileId == profile.id }
         authSessions.removeAll { $0.profileId == profile.id }
         notificationDedupStates.removeAll { $0.profileId == profile.id }
+        pingSettings.removeAll { $0.profileId == profile.id }
+        pingExecutionRecords.removeAll { $0.profileId == profile.id }
         syncMessage = "Removed \(profile.displayName)"
         save()
+        refreshIdleSleepActivity()
     }
 
     func setProfileEnabled(_ profile: ProviderProfile, enabled: Bool) {
@@ -199,6 +243,8 @@ final class AppModel {
         if !enabled {
             codexLoginMonitorTasks[profile.id]?.cancel()
             codexLoginMonitorTasks.removeValue(forKey: profile.id)
+            activePingTasks[profile.id]?.cancel()
+            activePingTasks.removeValue(forKey: profile.id)
             activeCodexLoginClients.removeValue(forKey: profile.id)
             if profile.provider == .codex,
                let codexHome = storageResolver.paths(for: profile).codexHome {
@@ -211,6 +257,7 @@ final class AppModel {
         profiles[index].status = enabled ? profile.provider.initialStatus : .disabled
         profiles[index].updatedAt = .now
         save()
+        refreshIdleSleepActivity()
     }
 
     func updateProfile(
@@ -243,6 +290,31 @@ final class AppModel {
         alertRules[index].enabled = enabled
         syncMessage = "Updated alert rule"
         save()
+    }
+
+    func updatePingSettings(_ settings: PingAutomationSettings) {
+        let normalized = settings.normalized()
+        guard profiles.contains(where: { $0.id == normalized.profileId }) else {
+            return
+        }
+
+        if let index = pingSettings.firstIndex(where: { $0.profileId == normalized.profileId }) {
+            pingSettings[index] = normalized
+        } else {
+            pingSettings.append(normalized)
+        }
+
+        syncMessage = "Updated ping automation"
+        save()
+        refreshIdleSleepActivity()
+    }
+
+    func runPingNow(for profile: ProviderProfile) {
+        schedulePingExecution(
+            profileId: profile.id,
+            scheduledFor: .now,
+            trigger: .manual
+        )
     }
 
     func updateAlertRule(
@@ -291,6 +363,7 @@ final class AppModel {
     func applicationDidBecomeActive() {
         Task {
             await resumePendingCodexAuthentications()
+            await processDuePings(trigger: .wakeCatchUp)
         }
     }
 
@@ -427,10 +500,14 @@ final class AppModel {
             snapshots = state.snapshots
             authSessions = state.authSessions
             notificationDedupStates = state.notificationDedupStates
+            pingSettings = state.pingSettings
+            pingExecutionRecords = state.pingExecutionRecords
             let originalAlertRules = alertRules
+            let originalPingSettings = pingSettings
             normalizeAlertRules()
+            normalizePingSettings()
             syncMessage = profiles.isEmpty ? "No profiles" : "Loaded local state"
-            if alertRules != originalAlertRules {
+            if alertRules != originalAlertRules || pingSettings != originalPingSettings {
                 save()
             }
         } catch {
@@ -440,6 +517,8 @@ final class AppModel {
             snapshots = []
             authSessions = []
             notificationDedupStates = []
+            pingSettings = []
+            pingExecutionRecords = []
             syncMessage = "Local state unavailable"
         }
     }
@@ -738,6 +817,19 @@ final class AppModel {
         save()
     }
 
+    private func configureWakeObserver() {
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.processDuePings(trigger: .wakeCatchUp)
+            }
+        }
+    }
+
     private func startBackgroundRefreshLoop() {
         Task { [weak self] in
             while !Task.isCancelled {
@@ -766,6 +858,204 @@ final class AppModel {
         }
     }
 
+    private func startBackgroundPingLoop() {
+        Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                guard let self else { return }
+                await self.processDuePings(trigger: .scheduled)
+            }
+        }
+    }
+
+    private func processDuePings(trigger: PingTriggerSource) async {
+        let now = Date.now
+
+        for profile in profiles where profile.provider == .codex && profile.status != .disabled {
+            let settings = pingSettings(for: profile)
+            if trigger == .wakeCatchUp && !settings.catchUpAfterWake {
+                continue
+            }
+
+            let plan = pingPlanner.plan(
+                profile: profile,
+                sessionWindow: preferredWindow(for: profile.id, kind: .session),
+                settings: settings,
+                now: now
+            )
+
+            guard plan.isRunnable,
+                  let scheduledFor = plan.pingAt,
+                  activePingTasks[profile.id] == nil,
+                  !hasPingExecution(profileId: profile.id, scheduledFor: scheduledFor)
+            else {
+                continue
+            }
+
+            schedulePingExecution(
+                profileId: profile.id,
+                scheduledFor: scheduledFor,
+                trigger: trigger
+            )
+        }
+
+        refreshIdleSleepActivity()
+    }
+
+    private func schedulePingExecution(
+        profileId: UUID,
+        scheduledFor: Date,
+        trigger: PingTriggerSource
+    ) {
+        guard activePingTasks[profileId] == nil else {
+            return
+        }
+
+        activePingTasks[profileId] = Task { [weak self] in
+            guard let self else { return }
+            await self.executePing(
+                profileId: profileId,
+                scheduledFor: scheduledFor,
+                trigger: trigger
+            )
+        }
+        refreshIdleSleepActivity()
+    }
+
+    private func executePing(
+        profileId: UUID,
+        scheduledFor: Date,
+        trigger: PingTriggerSource
+    ) async {
+        defer {
+            activePingTasks[profileId] = nil
+            refreshIdleSleepActivity()
+        }
+
+        guard let profile = profiles.first(where: { $0.id == profileId }) else {
+            return
+        }
+
+        let startedAt = Date.now
+        let outcome: PingExecutionOutcome
+
+        do {
+            let storage = try storageResolver.ensureDirectories(for: profile)
+            outcome = await pingExecutor.execute(storage: storage)
+        } catch {
+            let finishedAt = Date.now
+            recordPingExecution(
+                PingExecutionRecord(
+                    id: UUID(),
+                    profileId: profileId,
+                    scheduledFor: scheduledFor,
+                    startedAt: startedAt,
+                    finishedAt: finishedAt,
+                    trigger: trigger,
+                    status: .failed,
+                    message: error.localizedDescription
+                )
+            )
+            syncMessage = "Ping failed for \(profile.displayName)"
+            save()
+            return
+        }
+
+        let finishedAt = Date.now
+        recordPingExecution(
+            PingExecutionRecord(
+                id: UUID(),
+                profileId: profileId,
+                scheduledFor: scheduledFor,
+                startedAt: startedAt,
+                finishedAt: finishedAt,
+                trigger: trigger,
+                status: outcome.status,
+                message: outcome.message
+            )
+        )
+
+        if outcome.status == .success {
+            _ = await refreshProfile(
+                profileId: profileId,
+                silent: true,
+                preserveAuthenticatingOnAuthRequired: false
+            )
+            syncMessage = "Pinged \(profile.displayName)"
+        } else {
+            syncMessage = "Ping failed for \(profile.displayName)"
+        }
+
+        save()
+    }
+
+    private func hasPingExecution(
+        profileId: UUID,
+        scheduledFor: Date
+    ) -> Bool {
+        pingExecutionRecords.contains {
+            $0.profileId == profileId &&
+            abs($0.scheduledFor.timeIntervalSince(scheduledFor)) < 1
+        }
+    }
+
+    private func recordPingExecution(_ record: PingExecutionRecord) {
+        pingExecutionRecords.removeAll {
+            $0.profileId == record.profileId &&
+            abs($0.scheduledFor.timeIntervalSince(record.scheduledFor)) < 1 &&
+            $0.trigger == record.trigger
+        }
+        pingExecutionRecords.append(record)
+        pingExecutionRecords = pingExecutionRecords
+            .sorted { $0.startedAt > $1.startedAt }
+            .prefix(120)
+            .map { $0 }
+    }
+
+    private func refreshIdleSleepActivity() {
+        let now = Date.now
+        let hasRunningPing = !activePingTasks.isEmpty
+        let keepAwakeSoon = profiles.contains { profile in
+            guard profile.provider == .codex, profile.status != .disabled else {
+                return false
+            }
+
+            let settings = pingSettings(for: profile)
+            guard settings.enabled, settings.preventIdleSleep else {
+                return false
+            }
+
+            let plan = pingPlanner.plan(
+                profile: profile,
+                sessionWindow: preferredWindow(for: profile.id, kind: .session),
+                settings: settings,
+                now: now
+            )
+
+            guard let pingAt = plan.pingAt else {
+                return false
+            }
+
+            let interval = pingAt.timeIntervalSince(now)
+            return plan.state == .due || (interval >= 0 && interval <= 5 * 60)
+        }
+
+        if hasRunningPing || keepAwakeSoon {
+            if idleSleepActivity == nil {
+                idleSleepActivity = ProcessInfo.processInfo.beginActivity(
+                    options: [.idleSystemSleepDisabled],
+                    reason: "Ligents scheduled ping automation"
+                )
+            }
+            return
+        }
+
+        if let idleSleepActivity {
+            ProcessInfo.processInfo.endActivity(idleSleepActivity)
+            self.idleSleepActivity = nil
+        }
+    }
+
     private func save() {
         do {
             try persistenceStore.save(
@@ -776,7 +1066,9 @@ final class AppModel {
                     alertRules: alertRules,
                     snapshots: snapshots,
                     authSessions: authSessions,
-                    notificationDedupStates: notificationDedupStates
+                    notificationDedupStates: notificationDedupStates,
+                    pingSettings: pingSettings,
+                    pingExecutionRecords: pingExecutionRecords
                 )
             )
         } catch {
@@ -874,6 +1166,37 @@ final class AppModel {
         )
     }
 
+    private func preferredWindow(
+        for profileId: UUID,
+        kind: UsageWindowKind
+    ) -> UsageWindow? {
+        usageWindows(for: profileId)
+            .filter { $0.kind == kind }
+            .min(by: isLowerCapacityWindow)
+    }
+
+    private func isLowerCapacityWindow(
+        _ lhs: UsageWindow,
+        _ rhs: UsageWindow
+    ) -> Bool {
+        let lhsRemaining = lhs.remainingPercent ?? max(0, 100 - (lhs.usedPercent ?? 0))
+        let rhsRemaining = rhs.remainingPercent ?? max(0, 100 - (rhs.usedPercent ?? 0))
+        if lhsRemaining != rhsRemaining {
+            return lhsRemaining < rhsRemaining
+        }
+
+        switch (lhs.resetsAt, rhs.resetsAt) {
+        case let (lhsDate?, rhsDate?) where lhsDate != rhsDate:
+            return lhsDate < rhsDate
+        case (_?, nil):
+            return true
+        case (nil, _?):
+            return false
+        default:
+            return lhs.providerWindowId < rhs.providerWindowId
+        }
+    }
+
     private func defaultAlertRules(for profileId: UUID) -> [AlertRule] {
         [
             AlertRule(
@@ -924,6 +1247,23 @@ final class AppModel {
         }
 
         alertRules = normalized
+    }
+
+    private func normalizePingSettings() {
+        var normalized: [PingAutomationSettings] = []
+
+        for profile in profiles {
+            let existing = pingSettings.first { $0.profileId == profile.id }
+            normalized.append(
+                (existing ?? PingAutomationSettings.makeDefault(for: profile.id))
+                    .normalized()
+            )
+        }
+
+        pingSettings = normalized
+        pingExecutionRecords.removeAll { record in
+            !profiles.contains(where: { $0.id == record.profileId })
+        }
     }
 
     private func normalizedRule(

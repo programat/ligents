@@ -36,4 +36,14 @@ enum DisplayFormatters {
         formatter.setLocalizedDateFormatFromTemplate("d MMM HH:mm")
         return formatter.string(from: date)
     }
+
+    static func timeLabel(minutesAfterMidnight: Int) -> String {
+        let safeMinutes = min(max(minutesAfterMidnight, 0), (24 * 60) - 1)
+        let date = Calendar.autoupdatingCurrent.startOfDay(for: .now)
+            .addingTimeInterval(TimeInterval(safeMinutes * 60))
+
+        let formatter = DateFormatter()
+        formatter.setLocalizedDateFormatFromTemplate("HH:mm")
+        return formatter.string(from: date)
+    }
 }

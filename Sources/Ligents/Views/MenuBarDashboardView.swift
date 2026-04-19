@@ -117,6 +117,11 @@ struct MenuBarDashboardView: View {
 
     private var footer: some View {
         HStack {
+            Button(action: openPings) {
+                Label("Readiness", systemImage: "wave.3.right.circle")
+            }
+            .buttonStyle(DashboardFooterButtonStyle(tone: .primary))
+
             Button(action: openSettings) {
                 Label("Settings", systemImage: "gearshape")
             }
@@ -133,11 +138,6 @@ struct MenuBarDashboardView: View {
         .frame(height: DashboardPalette.footerHeight)
         .frame(maxWidth: .infinity)
         .background(.thinMaterial)
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(DashboardPalette.hairline)
-                .frame(height: 1)
-        }
     }
 
     private var subscriptionSummary: String {
@@ -188,6 +188,12 @@ struct MenuBarDashboardView: View {
     }
 
     private func openSettings() {
+        NSApp.activate(ignoringOtherApps: true)
+        openWindow(id: "settings")
+    }
+
+    private func openPings() {
+        UserDefaults.standard.set(SettingsSection.pings.rawValue, forKey: "settings.selection")
         NSApp.activate(ignoringOtherApps: true)
         openWindow(id: "settings")
     }
