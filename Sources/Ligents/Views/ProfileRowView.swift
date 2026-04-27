@@ -159,11 +159,7 @@ struct ProfileRowView: View {
     }
 
     private func metricValue(for kind: UsageWindowKind) -> String {
-        guard let window = usageWindows.first(where: { $0.kind == kind }) else {
-            return "n/a"
-        }
-
-        let remaining = window.remainingPercent ?? window.usedPercent.map { 100 - $0 }
+        let remaining = ProfileInsights.remainingPercent(in: usageWindows, kind: kind)
         guard let remaining else {
             return "n/a"
         }

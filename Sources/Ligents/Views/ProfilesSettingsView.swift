@@ -223,14 +223,19 @@ private struct ProfileSettingsRow: View {
             return "\(provider) • \(connection)"
         }
 
-        let summary = usageWindows
-            .sorted { $0.kind.rawValue < $1.kind.rawValue }
-            .prefix(2)
-            .map { window in
-                let remaining = Int((window.remainingPercent ?? max(0, 100 - (window.usedPercent ?? 0))).rounded())
-                return "\(window.kind.displayName) \(remaining)% left"
+        let summary = ProfileInsights.highlightedKinds
+            .compactMap { kind -> String? in
+                guard let remaining = ProfileInsights.remainingPercent(in: usageWindows, kind: kind) else {
+                    return nil
+                }
+
+                return "\(kind.displayName) \(Int(remaining.rounded()))% left"
             }
             .joined(separator: " • ")
+
+        if summary.isEmpty {
+            return "\(provider) • \(connection)"
+        }
 
         return "\(provider) • \(summary)"
     }

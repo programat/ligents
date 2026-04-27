@@ -57,14 +57,14 @@ struct ProfileUsageSnapshot: Identifiable, Equatable {
 }
 
 enum ProfileInsights {
+    static let highlightedKinds: [UsageWindowKind] = [.session, .weekly]
+
     static func snapshots(
         profiles: [ProviderProfile],
         usageWindows: [UsageWindow]
     ) -> [ProfileUsageSnapshot] {
         profiles.map { profile in
-            let windows = usageWindows
-                .filter { $0.profileId == profile.id }
-                .sorted { $0.kind.rawValue < $1.kind.rawValue }
+            let windows = windows(for: profile.id, in: usageWindows)
 
             return ProfileUsageSnapshot(
                 profile: profile,
@@ -83,10 +83,40 @@ enum ProfileInsights {
             }
     }
 
-    private static func preferredWindow(in windows: [UsageWindow], kind: UsageWindowKind) -> UsageWindow? {
+    static func windows(for profileId: UUID, in usageWindows: [UsageWindow]) -> [UsageWindow] {
+        usageWindows
+            .filter { $0.profileId == profileId }
+            .sorted(by: isWindowOrderedBefore)
+    }
+
+    static func preferredWindow(in windows: [UsageWindow], kind: UsageWindowKind) -> UsageWindow? {
         windows
             .filter { $0.kind == kind }
             .min(by: isLowerCapacityWindow)
+    }
+
+    static func remainingPercent(for window: UsageWindow?) -> Double? {
+        guard let window else {
+            return nil
+        }
+
+        return remainingPercent(for: window)
+    }
+
+    static func remainingPercent(in windows: [UsageWindow], kind: UsageWindowKind) -> Double? {
+        remainingPercent(for: preferredWindow(in: windows, kind: kind))
+    }
+
+    private static func isWindowOrderedBefore(_ lhs: UsageWindow, _ rhs: UsageWindow) -> Bool {
+        if lhs.kind != rhs.kind {
+            return sortIndex(for: lhs.kind) < sortIndex(for: rhs.kind)
+        }
+
+        return isLowerCapacityWindow(lhs, rhs)
+    }
+
+    private static func sortIndex(for kind: UsageWindowKind) -> Int {
+        UsageWindowKind.allCases.firstIndex(of: kind) ?? UsageWindowKind.allCases.count
     }
 
     private static func isLowerCapacityWindow(_ lhs: UsageWindow, _ rhs: UsageWindow) -> Bool {

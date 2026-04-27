@@ -4,6 +4,22 @@ import Foundation
 @MainActor
 @Observable
 final class AppModel {
+    private enum RefreshPolicy {
+        static let backgroundInterval: Duration = .seconds(90)
+        static let maximumSnapshotAge: TimeInterval = 8 * 24 * 60 * 60
+        static let maximumSnapshotsPerProfile = 8 * 24 * 40
+    }
+
+    private struct ProfileRefreshOutcome {
+        var didCaptureSnapshot: Bool
+        var didBecomeConnected: Bool
+
+        static let skipped = ProfileRefreshOutcome(
+            didCaptureSnapshot: false,
+            didBecomeConnected: false
+        )
+    }
+
     var profiles: [ProviderProfile] = []
     var usageWindows: [UsageWindow] = []
     var alertRules: [AlertRule] = []
@@ -30,6 +46,7 @@ final class AppModel {
     private var activeCodexLoginClients: [UUID: CodexAppServerClient] = [:]
     private var codexLoginMonitorTasks: [UUID: Task<Void, Never>] = [:]
     private var activePingTasks: [UUID: Task<Void, Never>] = [:]
+    private var activeRefreshProfileIDs: Set<UUID> = []
     private var idleSleepActivity: NSObjectProtocol?
 
     init() {
@@ -48,9 +65,7 @@ final class AppModel {
     }
 
     func usageWindows(for profileId: UUID) -> [UsageWindow] {
-        usageWindows
-            .filter { $0.profileId == profileId }
-            .sorted { $0.kind.rawValue < $1.kind.rawValue }
+        ProfileInsights.windows(for: profileId, in: usageWindows)
     }
 
     func alertRules(for profileId: UUID) -> [AlertRule] {
@@ -550,14 +565,18 @@ final class AppModel {
             agentProxySettings = loadedProxySettings
             let originalAlertRules = alertRules
             let originalPingSettings = pingSettings
+            let originalSnapshots = snapshots
             normalizeAlertRules()
             normalizePingSettings()
+            pruneSnapshots()
             syncMessage = if let proxyPasswordLoadError {
                 "Loaded local state; proxy password unavailable: \(proxyPasswordLoadError.localizedDescription)"
             } else {
                 profiles.isEmpty ? "No profiles" : "Loaded local state"
             }
-            if alertRules != originalAlertRules || pingSettings != originalPingSettings {
+            if alertRules != originalAlertRules ||
+                pingSettings != originalPingSettings ||
+                snapshots != originalSnapshots {
                 save()
             }
         } catch {
@@ -618,78 +637,21 @@ final class AppModel {
         syncMessage = "Syncing..."
         var completedCount = 0
 
-        for profile in profiles {
-            let profileId = profile.id
-            guard let profileIndex = profiles.firstIndex(where: { $0.id == profileId }) else {
-                continue
-            }
-
-            guard profiles[profileIndex].status != .disabled else {
-                continue
-            }
-
-            let baseProfile = profiles[profileIndex]
-            profiles[profileIndex].status = .syncing
-            profiles[profileIndex].updatedAt = .now
-
-            let result = await syncOrchestrator.refresh(
-                profile: profiles[profileIndex],
-                currentUsageWindows: usageWindows(for: profileId),
-                agentProxySettings: agentProxySettings
-            )
-
-            guard let currentProfileIndex = profiles.firstIndex(where: { $0.id == profileId }),
-                  profiles[currentProfileIndex].status != .disabled
+        for profileId in profiles.map(\.id) {
+            guard let profile = profiles.first(where: { $0.id == profileId }),
+                  profile.status != .disabled
             else {
                 continue
             }
 
-            let previousWindows = usageWindows(for: profileId)
-            var appliedResult = result
-
-            if result.snapshot == nil,
-               result.profile.provider == .codex,
-               previousWindows.isEmpty == false,
-               profile.displayName == "Dev Codex" {
-                appliedResult = simulatedDevelopmentRefresh(
-                    profile: result.profile,
-                    previousWindows: previousWindows
-                )
-            }
-
-            appliedResult.profile = mergedProfileAfterRefresh(
-                current: profiles[currentProfileIndex],
-                base: baseProfile,
-                refreshed: appliedResult.profile
-            )
-            profiles[currentProfileIndex] = appliedResult.profile
-            if appliedResult.profile.provider == .codex && appliedResult.profile.status == .active {
-                activeCodexLoginClients.removeValue(forKey: profileId)
-            }
-            usageWindows.removeAll { $0.profileId == profileId }
-            usageWindows.append(contentsOf: appliedResult.usageWindows)
-
-            let evaluation = notificationRuleEvaluator.evaluate(
-                profile: appliedResult.profile,
-                previousWindows: previousWindows,
-                newWindows: appliedResult.usageWindows,
-                rules: alertRules(for: profileId),
-                existingDedupStates: notificationDedupStates.filter { $0.profileId == profileId }
+            let outcome = await refreshProfile(
+                profileId: profileId,
+                silent: true,
+                preserveAuthenticatingOnAuthRequired: false,
+                saveChanges: false
             )
 
-            notificationDedupStates.removeAll { $0.profileId == profileId }
-            notificationDedupStates.append(contentsOf: evaluation.dedupStates)
-
-            if notificationAuthorizationState.canSendNotifications {
-                for event in evaluation.events {
-                    Task {
-                        await notificationService.send(event: event)
-                    }
-                }
-            }
-
-            if let snapshot = appliedResult.snapshot {
-                snapshots.append(snapshot)
+            if outcome.didCaptureSnapshot {
                 completedCount += 1
             }
         }
@@ -701,15 +663,23 @@ final class AppModel {
     private func refreshProfile(
         profileId: UUID,
         silent: Bool,
-        preserveAuthenticatingOnAuthRequired: Bool
-    ) async -> Bool {
+        preserveAuthenticatingOnAuthRequired: Bool,
+        saveChanges: Bool
+    ) async -> ProfileRefreshOutcome {
+        guard beginProfileRefresh(profileId) else {
+            return .skipped
+        }
+        defer {
+            activeRefreshProfileIDs.remove(profileId)
+        }
+
         guard let profileIndex = profiles.firstIndex(where: { $0.id == profileId }) else {
-            return false
+            return .skipped
         }
 
         let profile = profiles[profileIndex]
         guard profile.status != .disabled else {
-            return false
+            return .skipped
         }
 
         let baseProfile = profile
@@ -732,10 +702,20 @@ final class AppModel {
         guard let currentProfileIndex = profiles.firstIndex(where: { $0.id == profileId }),
               profiles[currentProfileIndex].status != .disabled
         else {
-            return false
+            return .skipped
         }
 
         var appliedResult = result
+        if result.snapshot == nil,
+           result.profile.provider == .codex,
+           previousWindows.isEmpty == false,
+           profile.displayName == "Dev Codex" {
+            appliedResult = simulatedDevelopmentRefresh(
+                profile: result.profile,
+                previousWindows: previousWindows
+            )
+        }
+
         if preserveAuthenticatingOnAuthRequired,
            priorStatus == .authenticating,
            result.profile.status == .authRequired,
@@ -750,6 +730,15 @@ final class AppModel {
             base: baseProfile,
             refreshed: appliedResult.profile
         )
+        appliedResult.usageWindows = usageWindowsWithStableIDs(
+            appliedResult.usageWindows,
+            previousWindows: previousWindows
+        )
+        if var snapshot = appliedResult.snapshot {
+            snapshot.normalizedWindows = appliedResult.usageWindows
+            appliedResult.snapshot = snapshot
+        }
+
         profiles[currentProfileIndex] = appliedResult.profile
         usageWindows.removeAll { $0.profileId == profile.id }
         usageWindows.append(contentsOf: appliedResult.usageWindows)
@@ -774,10 +763,13 @@ final class AppModel {
         }
 
         if let snapshot = appliedResult.snapshot {
-            snapshots.append(snapshot)
+            appendSnapshot(snapshot)
         }
 
-        if appliedResult.profile.provider == .codex && appliedResult.profile.status == .active {
+        let didBecomeConnected = appliedResult.profile.provider == .codex &&
+            appliedResult.profile.status == .active
+
+        if didBecomeConnected {
             codexLoginMonitorTasks[profile.id]?.cancel()
             codexLoginMonitorTasks.removeValue(forKey: profile.id)
             activeCodexLoginClients.removeValue(forKey: profile.id)
@@ -786,16 +778,91 @@ final class AppModel {
                 syncMessage = "Connected \(appliedResult.profile.displayName)"
             }
 
-            save()
-            return true
+            if saveChanges {
+                save()
+            }
+            return ProfileRefreshOutcome(
+                didCaptureSnapshot: appliedResult.snapshot != nil,
+                didBecomeConnected: true
+            )
         }
 
         if !silent {
             syncMessage = appliedResult.snapshot == nil ? "No connected profiles" : "Synced 1 profile"
         }
 
-        save()
-        return false
+        if saveChanges {
+            save()
+        }
+        return ProfileRefreshOutcome(
+            didCaptureSnapshot: appliedResult.snapshot != nil,
+            didBecomeConnected: false
+        )
+    }
+
+    private func beginProfileRefresh(_ profileId: UUID) -> Bool {
+        guard !activeRefreshProfileIDs.contains(profileId) else {
+            return false
+        }
+
+        activeRefreshProfileIDs.insert(profileId)
+        return true
+    }
+
+    private func usageWindowsWithStableIDs(
+        _ windows: [UsageWindow],
+        previousWindows: [UsageWindow]
+    ) -> [UsageWindow] {
+        var idsByProviderWindowID: [String: UUID] = [:]
+        for window in previousWindows {
+            idsByProviderWindowID[window.providerWindowId] = window.id
+        }
+
+        return windows.map { window in
+            var stableWindow = window
+            if let existingID = idsByProviderWindowID[window.providerWindowId] {
+                stableWindow.id = existingID
+            }
+            return stableWindow
+        }
+    }
+
+    private func appendSnapshot(_ snapshot: SyncSnapshot) {
+        snapshots.append(snapshot)
+        pruneSnapshots(for: snapshot.profileId)
+    }
+
+    private func pruneSnapshots(for profileId: UUID? = nil) {
+        let profileIDs = if let profileId {
+            [profileId]
+        } else {
+            Array(Set(snapshots.map(\.profileId)))
+        }
+
+        for profileID in profileIDs {
+            let profileSnapshots = snapshots
+                .filter { $0.profileId == profileID }
+                .sorted { $0.capturedAt > $1.capturedAt }
+            let cutoff = Date.now.addingTimeInterval(-RefreshPolicy.maximumSnapshotAge)
+            let recentSnapshots = profileSnapshots.filter { $0.capturedAt >= cutoff }
+            let retainedSource = recentSnapshots.isEmpty ? profileSnapshots : recentSnapshots
+            let hasExpiredSnapshots = retainedSource.count < profileSnapshots.count
+            let exceedsProfileCap = retainedSource.count > RefreshPolicy.maximumSnapshotsPerProfile
+
+            guard hasExpiredSnapshots || exceedsProfileCap else {
+                continue
+            }
+
+            let retainedSnapshotIDs = Set(
+                retainedSource
+                    .prefix(RefreshPolicy.maximumSnapshotsPerProfile)
+                    .map(\.id)
+            )
+
+            snapshots.removeAll {
+                $0.profileId == profileID && !retainedSnapshotIDs.contains($0.id)
+            }
+        }
     }
 
     private func mergedProfileAfterRefresh(
@@ -836,13 +903,14 @@ final class AppModel {
                 try? await Task.sleep(for: .seconds(2))
                 guard !Task.isCancelled else { return }
 
-                let connected = await self.refreshProfile(
+                let outcome = await self.refreshProfile(
                     profileId: profileId,
                     silent: true,
-                    preserveAuthenticatingOnAuthRequired: true
+                    preserveAuthenticatingOnAuthRequired: true,
+                    saveChanges: true
                 )
 
-                if connected {
+                if outcome.didBecomeConnected {
                     return
                 }
             }
@@ -886,7 +954,7 @@ final class AppModel {
     private func startBackgroundRefreshLoop() {
         Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(90))
+                try? await Task.sleep(for: RefreshPolicy.backgroundInterval)
                 guard let self else { return }
                 await self.refreshProfilesInBackground()
             }
@@ -894,9 +962,7 @@ final class AppModel {
     }
 
     private func refreshProfilesInBackground() async {
-        let refreshableProfiles = profiles.filter {
-            $0.status == .active || $0.status == .authenticating
-        }
+        let refreshableProfiles = profiles.filter(shouldRefreshProfileInBackground)
 
         guard !refreshableProfiles.isEmpty else {
             return
@@ -906,8 +972,26 @@ final class AppModel {
             _ = await refreshProfile(
                 profileId: profile.id,
                 silent: true,
-                preserveAuthenticatingOnAuthRequired: profile.status == .authenticating
+                preserveAuthenticatingOnAuthRequired: profile.status == .authenticating,
+                saveChanges: true
             )
+        }
+    }
+
+    private func shouldRefreshProfileInBackground(_ profile: ProviderProfile) -> Bool {
+        guard profile.provider == .codex,
+              !activeRefreshProfileIDs.contains(profile.id)
+        else {
+            return false
+        }
+
+        switch profile.status {
+        case .active, .authenticating:
+            return true
+        case .authRequired, .degraded, .error:
+            return profile.lastSuccessfulSyncAt != nil || !usageWindows(for: profile.id).isEmpty
+        case .syncing, .disabled:
+            return false
         }
     }
 
@@ -1032,7 +1116,8 @@ final class AppModel {
             _ = await refreshProfile(
                 profileId: profileId,
                 silent: true,
-                preserveAuthenticatingOnAuthRequired: false
+                preserveAuthenticatingOnAuthRequired: false,
+                saveChanges: false
             )
             syncMessage = "Pinged \(profile.displayName)"
         } else {
@@ -1225,31 +1310,10 @@ final class AppModel {
         for profileId: UUID,
         kind: UsageWindowKind
     ) -> UsageWindow? {
-        usageWindows(for: profileId)
-            .filter { $0.kind == kind }
-            .min(by: isLowerCapacityWindow)
-    }
-
-    private func isLowerCapacityWindow(
-        _ lhs: UsageWindow,
-        _ rhs: UsageWindow
-    ) -> Bool {
-        let lhsRemaining = lhs.remainingPercent ?? max(0, 100 - (lhs.usedPercent ?? 0))
-        let rhsRemaining = rhs.remainingPercent ?? max(0, 100 - (rhs.usedPercent ?? 0))
-        if lhsRemaining != rhsRemaining {
-            return lhsRemaining < rhsRemaining
-        }
-
-        switch (lhs.resetsAt, rhs.resetsAt) {
-        case let (lhsDate?, rhsDate?) where lhsDate != rhsDate:
-            return lhsDate < rhsDate
-        case (_?, nil):
-            return true
-        case (nil, _?):
-            return false
-        default:
-            return lhs.providerWindowId < rhs.providerWindowId
-        }
+        ProfileInsights.preferredWindow(
+            in: usageWindows(for: profileId),
+            kind: kind
+        )
     }
 
     private func defaultAlertRules(for profileId: UUID) -> [AlertRule] {
