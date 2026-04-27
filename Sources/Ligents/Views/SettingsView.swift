@@ -43,6 +43,8 @@ struct SettingsView: View {
                     ProfilesSettingsView(model: model)
                 case .pings:
                     PingSettingsView(model: model, selection: selection)
+                case .network:
+                    AgentProxySettingsView(model: model)
                 case .notifications:
                     NotificationsSettingsView(model: model)
                 case .diagnostics:
@@ -75,6 +77,7 @@ private struct SettingsDetailPane<Content: View>: View {
 enum SettingsSection: String, CaseIterable, Identifiable {
     case profiles
     case pings
+    case network
     case notifications
     case diagnostics
 
@@ -86,6 +89,8 @@ enum SettingsSection: String, CaseIterable, Identifiable {
             "Profiles"
         case .pings:
             "Readiness"
+        case .network:
+            "Network"
         case .notifications:
             "Notifications"
         case .diagnostics:
@@ -99,6 +104,8 @@ enum SettingsSection: String, CaseIterable, Identifiable {
             "person.2"
         case .pings:
             "wave.3.right.circle"
+        case .network:
+            "network"
         case .notifications:
             "bell"
         case .diagnostics:

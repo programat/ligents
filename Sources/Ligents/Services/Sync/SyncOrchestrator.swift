@@ -21,7 +21,8 @@ struct SyncOrchestrator {
 
     func refresh(
         profile: ProviderProfile,
-        currentUsageWindows: [UsageWindow]
+        currentUsageWindows: [UsageWindow],
+        agentProxySettings: AgentProxySettings = .disabled
     ) async -> ProfileSyncResult {
         var updatedProfile = profile
         let now = Date.now
@@ -32,7 +33,7 @@ struct SyncOrchestrator {
 
         do {
             let storage = try storageResolver.ensureDirectories(for: profile)
-            let adapter = try adapterRegistry.adapter(for: profile.provider)
+            let adapter = try adapterRegistry.adapter(for: profile.provider, agentProxySettings: agentProxySettings)
 
             updatedProfile.status = .syncing
             updatedProfile.updatedAt = now

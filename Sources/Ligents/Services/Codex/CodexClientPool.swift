@@ -7,21 +7,32 @@ actor CodexClientPool {
 
     func client(
         executablePath: String,
-        codexHome: URL
+        codexHome: URL,
+        agentProxySettings: AgentProxySettings = .disabled
     ) -> CodexAppServerClient {
-        if let existing = clients[codexHome.path] {
+        let normalizedProxySettings = agentProxySettings.normalized()
+        let cacheKey = "\(codexHome.path)|\(normalizedProxySettings.environmentCacheKey)"
+
+        if let existing = clients[cacheKey] {
             return existing
         }
 
         let client = CodexAppServerClient(
             executablePath: executablePath,
-            codexHome: codexHome
+            codexHome: codexHome,
+            agentProxySettings: normalizedProxySettings
         )
-        clients[codexHome.path] = client
+        clients[cacheKey] = client
         return client
     }
 
     func remove(codexHome: URL) {
-        clients.removeValue(forKey: codexHome.path)
+        clients = clients.filter { key, _ in
+            !key.hasPrefix("\(codexHome.path)|")
+        }
+    }
+
+    func removeAll() {
+        clients.removeAll()
     }
 }

@@ -27,6 +27,7 @@ private final class CodexResponseContinuationBox<Output: Sendable>: @unchecked S
 actor CodexAppServerClient {
     private let executablePath: String
     private let codexHome: URL
+    private let agentProxySettings: AgentProxySettings
     private var process: Process?
     private var inputPipe: Pipe?
     private var outputPipe: Pipe?
@@ -36,9 +37,14 @@ actor CodexAppServerClient {
     private var requestInFlight = false
     private let responseTimeoutSeconds: TimeInterval = 15
 
-    init(executablePath: String, codexHome: URL) {
+    init(
+        executablePath: String,
+        codexHome: URL,
+        agentProxySettings: AgentProxySettings = .disabled
+    ) {
         self.executablePath = executablePath
         self.codexHome = codexHome
+        self.agentProxySettings = agentProxySettings.normalized()
     }
 
     deinit {
@@ -242,6 +248,7 @@ actor CodexAppServerClient {
     private func mergedEnvironment() -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
         environment["CODEX_HOME"] = codexHome.path
+        agentProxySettings.apply(to: &environment)
         return environment
     }
 

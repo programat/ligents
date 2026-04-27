@@ -1,7 +1,7 @@
 import Foundation
 
 struct AppPersistenceState: Codable, Equatable {
-    static let currentSchemaVersion = 2
+    static let currentSchemaVersion = 3
 
     var schemaVersion: Int
     var profiles: [ProviderProfile]
@@ -12,6 +12,7 @@ struct AppPersistenceState: Codable, Equatable {
     var notificationDedupStates: [NotificationDedupState]
     var pingSettings: [PingAutomationSettings]
     var pingExecutionRecords: [PingExecutionRecord]
+    var agentProxySettings: AgentProxySettings
 
     static var empty: AppPersistenceState {
         AppPersistenceState(
@@ -23,7 +24,8 @@ struct AppPersistenceState: Codable, Equatable {
             authSessions: [],
             notificationDedupStates: [],
             pingSettings: [],
-            pingExecutionRecords: []
+            pingExecutionRecords: [],
+            agentProxySettings: .disabled
         )
     }
 }
@@ -37,6 +39,7 @@ private struct LegacyAppPersistenceState: Codable {
     var notificationDedupStates: [NotificationDedupState]?
     var pingSettings: [PingAutomationSettings]?
     var pingExecutionRecords: [PingExecutionRecord]?
+    var agentProxySettings: AgentProxySettings?
 }
 
 struct PersistenceStore {
@@ -98,7 +101,8 @@ struct PersistenceStore {
                 authSessions: legacy.authSessions ?? [],
                 notificationDedupStates: legacy.notificationDedupStates ?? [],
                 pingSettings: legacy.pingSettings ?? [],
-                pingExecutionRecords: legacy.pingExecutionRecords ?? []
+                pingExecutionRecords: legacy.pingExecutionRecords ?? [],
+                agentProxySettings: legacy.agentProxySettings ?? .disabled
             )
         }
     }

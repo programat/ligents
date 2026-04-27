@@ -34,7 +34,10 @@ struct PingExecutor {
     private let timeoutSeconds: TimeInterval = 90
     private let pingPrompt = "Reply with exactly OK."
 
-    func execute(storage: ProfileStoragePaths) async -> PingExecutionOutcome {
+    func execute(
+        storage: ProfileStoragePaths,
+        agentProxySettings: AgentProxySettings = .disabled
+    ) async -> PingExecutionOutcome {
         guard let codexHome = storage.codexHome else {
             return PingExecutionOutcome(
                 status: .failed,
@@ -44,7 +47,11 @@ struct PingExecutor {
 
         do {
             let executablePath = try runtimeResolver.resolveExecutablePath()
-            let result = try await runCodexExec(executablePath: executablePath, codexHome: codexHome)
+            let result = try await runCodexExec(
+                executablePath: executablePath,
+                codexHome: codexHome,
+                agentProxySettings: agentProxySettings
+            )
             let stdout = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
             let stderr = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -74,7 +81,8 @@ struct PingExecutor {
 
     private func runCodexExec(
         executablePath: String,
-        codexHome: URL
+        codexHome: URL,
+        agentProxySettings: AgentProxySettings
     ) async throws -> PingCommandResult {
         try await withCheckedThrowingContinuation { continuation in
             let continuationBox = PingProcessContinuationBox<PingCommandResult>(continuation)
@@ -101,6 +109,7 @@ struct PingExecutor {
 
             var environment = ProcessInfo.processInfo.environment
             environment["CODEX_HOME"] = codexHome.path
+            agentProxySettings.apply(to: &environment)
             process.environment = environment
 
             process.terminationHandler = { process in

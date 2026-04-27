@@ -4,15 +4,23 @@ import Foundation
 struct AdapterRegistry {
     private let adapters: [Provider: any UsageAdapter]
 
-    init(adapters: [any UsageAdapter] = [CodexAdapter(), ClaudeAdapter()]) {
+    init(adapters: [any UsageAdapter] = []) {
         self.adapters = Dictionary(uniqueKeysWithValues: adapters.map { ($0.provider, $0) })
     }
 
-    func adapter(for provider: Provider) throws -> any UsageAdapter {
-        guard let adapter = adapters[provider] else {
-            throw AdapterFailure.unsupported("No adapter is registered for \(provider.displayName).")
+    func adapter(
+        for provider: Provider,
+        agentProxySettings: AgentProxySettings = .disabled
+    ) throws -> any UsageAdapter {
+        if let adapter = adapters[provider] {
+            return adapter
         }
 
-        return adapter
+        switch provider {
+        case .codex:
+            return CodexAdapter(agentProxySettings: agentProxySettings)
+        case .claude:
+            return ClaudeAdapter()
+        }
     }
 }

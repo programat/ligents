@@ -4,6 +4,11 @@ struct CodexAdapter: UsageAdapter {
     let provider: Provider = .codex
     private let runtimeResolver = CodexRuntimeResolver()
     private let clientPool = CodexClientPool.shared
+    private let agentProxySettings: AgentProxySettings
+
+    init(agentProxySettings: AgentProxySettings = .disabled) {
+        self.agentProxySettings = agentProxySettings.normalized()
+    }
 
     func bootstrap(profile: ProviderProfile, storage: ProfileStoragePaths) async throws {
         guard storage.codexHome != nil else {
@@ -80,7 +85,8 @@ struct CodexAdapter: UsageAdapter {
     private func appServerClient(codexHome: URL) async throws -> CodexAppServerClient {
         await clientPool.client(
             executablePath: try runtimeResolver.resolveExecutablePath(),
-            codexHome: codexHome
+            codexHome: codexHome,
+            agentProxySettings: agentProxySettings
         )
     }
 

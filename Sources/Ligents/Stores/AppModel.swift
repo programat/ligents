@@ -12,6 +12,7 @@ final class AppModel {
     var notificationDedupStates: [NotificationDedupState] = []
     var pingSettings: [PingAutomationSettings] = []
     var pingExecutionRecords: [PingExecutionRecord] = []
+    var agentProxySettings: AgentProxySettings = .disabled
     var syncMessage = "Ready"
     var notificationsAuthorized = false
     var notificationAuthorizationState: NotificationAuthorizationState = .unknown
@@ -25,6 +26,7 @@ final class AppModel {
     private let pingPlanner = PingPlanner()
     private let wakeSchedulePlanner = WakeSchedulePlanner()
     private let pingExecutor = PingExecutor()
+    private let agentProxyPasswordStore = AgentProxyPasswordStore()
     private var activeCodexLoginClients: [UUID: CodexAppServerClient] = [:]
     private var codexLoginMonitorTasks: [UUID: Task<Void, Never>] = [:]
     private var activePingTasks: [UUID: Task<Void, Never>] = [:]
@@ -309,6 +311,34 @@ final class AppModel {
         refreshIdleSleepActivity()
     }
 
+    func updateAgentProxySettings(_ settings: AgentProxySettings) {
+        let normalized = settings.normalized()
+        guard agentProxySettings != normalized else {
+            return
+        }
+
+        do {
+            if !normalized.isEnabled {
+                try agentProxyPasswordStore.deletePassword()
+            } else if !normalized.password.isEmpty {
+                try agentProxyPasswordStore.savePassword(normalized.password)
+            } else if !agentProxySettings.password.isEmpty {
+                try agentProxyPasswordStore.deletePassword()
+            }
+        } catch {
+            syncMessage = "Agent proxy password save failed: \(error.localizedDescription)"
+            return
+        }
+
+        agentProxySettings = normalized
+        activeCodexLoginClients.removeAll()
+        Task {
+            await CodexClientPool.shared.removeAll()
+        }
+        syncMessage = normalized.isEnabled ? "Updated agent proxy" : "Disabled agent proxy"
+        save()
+    }
+
     func runPingNow(for profile: ProviderProfile) {
         schedulePingExecution(
             profileId: profile.id,
@@ -494,6 +524,21 @@ final class AppModel {
     private func load() {
         do {
             let state = try persistenceStore.load() ?? .empty
+            var loadedProxySettings = state.agentProxySettings.normalized()
+            let proxyPasswordLoadError: Error?
+
+            if loadedProxySettings.isEnabled {
+                do {
+                    loadedProxySettings.password = try agentProxyPasswordStore.loadPassword() ?? ""
+                    proxyPasswordLoadError = nil
+                } catch {
+                    proxyPasswordLoadError = error
+                }
+            } else {
+                try? agentProxyPasswordStore.deletePassword()
+                proxyPasswordLoadError = nil
+            }
+
             profiles = state.profiles
             usageWindows = state.usageWindows
             alertRules = state.alertRules
@@ -502,11 +547,16 @@ final class AppModel {
             notificationDedupStates = state.notificationDedupStates
             pingSettings = state.pingSettings
             pingExecutionRecords = state.pingExecutionRecords
+            agentProxySettings = loadedProxySettings
             let originalAlertRules = alertRules
             let originalPingSettings = pingSettings
             normalizeAlertRules()
             normalizePingSettings()
-            syncMessage = profiles.isEmpty ? "No profiles" : "Loaded local state"
+            syncMessage = if let proxyPasswordLoadError {
+                "Loaded local state; proxy password unavailable: \(proxyPasswordLoadError.localizedDescription)"
+            } else {
+                profiles.isEmpty ? "No profiles" : "Loaded local state"
+            }
             if alertRules != originalAlertRules || pingSettings != originalPingSettings {
                 save()
             }
@@ -519,6 +569,7 @@ final class AppModel {
             notificationDedupStates = []
             pingSettings = []
             pingExecutionRecords = []
+            agentProxySettings = .disabled
             syncMessage = "Local state unavailable"
         }
     }
@@ -583,7 +634,8 @@ final class AppModel {
 
             let result = await syncOrchestrator.refresh(
                 profile: profiles[profileIndex],
-                currentUsageWindows: usageWindows(for: profileId)
+                currentUsageWindows: usageWindows(for: profileId),
+                agentProxySettings: agentProxySettings
             )
 
             guard let currentProfileIndex = profiles.firstIndex(where: { $0.id == profileId }),
@@ -673,7 +725,8 @@ final class AppModel {
 
         let result = await syncOrchestrator.refresh(
             profile: profiles[profileIndex],
-            currentUsageWindows: previousWindows
+            currentUsageWindows: previousWindows,
+            agentProxySettings: agentProxySettings
         )
 
         guard let currentProfileIndex = profiles.firstIndex(where: { $0.id == profileId }),
@@ -941,7 +994,7 @@ final class AppModel {
 
         do {
             let storage = try storageResolver.ensureDirectories(for: profile)
-            outcome = await pingExecutor.execute(storage: storage)
+            outcome = await pingExecutor.execute(storage: storage, agentProxySettings: agentProxySettings)
         } catch {
             let finishedAt = Date.now
             recordPingExecution(
@@ -1068,7 +1121,8 @@ final class AppModel {
                     authSessions: authSessions,
                     notificationDedupStates: notificationDedupStates,
                     pingSettings: pingSettings,
-                    pingExecutionRecords: pingExecutionRecords
+                    pingExecutionRecords: pingExecutionRecords,
+                    agentProxySettings: agentProxySettings
                 )
             )
         } catch {
@@ -1083,7 +1137,8 @@ final class AppModel {
 
         let client = await CodexClientPool.shared.client(
             executablePath: try CodexRuntimeResolver().resolveExecutablePath(),
-            codexHome: codexHome
+            codexHome: codexHome,
+            agentProxySettings: agentProxySettings
         )
 
         guard profiles.contains(where: { $0.id == profileId }) else {
