@@ -3,6 +3,7 @@ import SwiftUI
 struct ProfileRowView: View {
     let profile: ProviderProfile
     let usageWindows: [UsageWindow]
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isExpanded = false
     @State private var isHovering = false
 
@@ -33,31 +34,12 @@ struct ProfileRowView: View {
                             .allowsHitTesting(isHovering)
                     }
 
-                    Text(providerSummary)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    collapsedSummaryLine
                 }
 
                 Spacer(minLength: 8)
 
-                VStack(alignment: .trailing, spacing: 8) {
-                    StatusPill(status: profile.status)
-
-                    if !usageWindows.isEmpty {
-                        Button {
-                            withAnimation(.easeOut(duration: 0.18)) {
-                                isExpanded.toggle()
-                            }
-                        } label: {
-                            Label(isExpanded ? "Hide" : "Details", systemImage: isExpanded ? "chevron.up" : "chevron.down")
-                                .labelStyle(.titleAndIcon)
-                        }
-                        .buttonStyle(.plain)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    }
-                }
+                trailingControls
             }
 
             content
@@ -70,7 +52,7 @@ struct ProfileRowView: View {
                     .transition(.opacity)
             }
         }
-        .animation(.easeOut(duration: 0.18), value: isExpanded)
+        .animation(expansionAnimation, value: isExpanded)
         .onHover { isHovering = $0 }
     }
 
@@ -88,19 +70,15 @@ struct ProfileRowView: View {
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
-        } else {
+        } else if isExpanded {
             VStack(spacing: 10) {
-                profileSummaryStrip
-
-                if isExpanded {
-                    ForEach(usageWindows) { window in
-                        UsageWindowView(window: window)
-                    }
-
-                    expandedMeta
-                        .transition(.opacity.combined(with: .move(edge: .top)))
+                ForEach(usageWindows) { window in
+                    UsageWindowView(window: window)
                 }
+
+                expandedMeta
             }
+            .transition(expandedContentTransition)
         }
     }
 
@@ -118,26 +96,72 @@ struct ProfileRowView: View {
         return "\(exact)  •  \(relative)"
     }
 
-    private var profileSummaryStrip: some View {
-        HStack(spacing: 10) {
-            summaryMetric(
-                title: "5h",
-                value: metricValue(for: .session)
-            )
+    private var collapsedSummaryLine: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(providerSummary)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
 
-            Rectangle()
-                .fill(DashboardPalette.hairline)
-                .frame(width: 1, height: 14)
+            if !usageWindows.isEmpty {
+                HStack(spacing: 8) {
+                    summaryMetric(
+                        title: "5h",
+                        value: metricValue(for: .session)
+                    )
 
-            summaryMetric(
-                title: "Week",
-                value: metricValue(for: .weekly)
-            )
-
-            Spacer(minLength: 0)
+                    summaryMetric(
+                        title: "Week",
+                        value: metricValue(for: .weekly)
+                    )
+                }
+                .font(.caption.monospacedDigit())
+                .fixedSize(horizontal: true, vertical: false)
+            }
         }
-        .font(.caption.monospacedDigit())
-        .padding(.vertical, 2)
+        .lineLimit(1)
+    }
+
+    private var trailingControls: some View {
+        HStack(alignment: .center, spacing: 8) {
+            StatusPill(status: profile.status)
+
+            if !usageWindows.isEmpty {
+                Button {
+                    withAnimation(expansionAnimation) {
+                        isExpanded.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: reduceMotion ? (isExpanded ? "chevron.down" : "chevron.right") : "chevron.right")
+                            .rotationEffect(.degrees(!reduceMotion && isExpanded ? 90 : 0))
+
+                        Text("Details")
+                    }
+                    .lineLimit(1)
+                }
+                .accessibilityLabel(isExpanded ? "Hide details" : "Show details")
+                .buttonStyle(.plain)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(DashboardPalette.surfaceFill, in: Capsule())
+                .overlay {
+                    Capsule()
+                        .strokeBorder(DashboardPalette.hairline, lineWidth: 1)
+                }
+            }
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var expansionAnimation: Animation {
+        reduceMotion ? .easeOut(duration: 0.12) : .smooth(duration: 0.22)
+    }
+
+    private var expandedContentTransition: AnyTransition {
+        .opacity
     }
 
     private var expandedMeta: some View {
