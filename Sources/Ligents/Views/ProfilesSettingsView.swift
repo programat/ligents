@@ -32,7 +32,7 @@ struct ProfilesSettingsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 16) {
+                    LazyVStack(alignment: .leading, spacing: SettingsLayout.stackSpacing) {
                         ForEach(model.profiles) { profile in
                             ProfileSettingsRow(
                                 profile: profile,
@@ -60,8 +60,10 @@ struct ProfilesSettingsView: View {
                             )
                         }
                     }
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 20)
+                    .frame(maxWidth: SettingsLayout.contentMaxWidth, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, SettingsLayout.horizontalPadding)
+                    .padding(.vertical, SettingsLayout.verticalPadding)
                 }
             }
         }
@@ -98,121 +100,127 @@ private struct ProfileSettingsRow: View {
     let onRemove: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Button(action: onToggleExpanded) {
-                HStack(alignment: .center, spacing: 12) {
-                    ProviderLogoView(provider: profile.provider, size: 18)
+        SettingsCard {
+            VStack(alignment: .leading, spacing: 12) {
+                Button(action: onToggleExpanded) {
+                    HStack(alignment: .center, spacing: 12) {
+                        ProviderLogoView(provider: profile.provider, size: 18)
 
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(profile.email ?? profile.displayName)
-                            .font(.headline)
-                            .lineLimit(1)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(profile.email ?? profile.displayName)
+                                .font(.headline)
+                                .lineLimit(1)
 
-                        Text(summaryLine)
-                            .font(.callout)
+                            Text(summaryLine)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+
+                        Spacer()
+
+                        StatusPill(status: profile.status)
+
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                            .frame(width: 16)
                     }
-
-                    Spacer()
-
-                    StatusPill(status: profile.status)
-
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 16)
+                    .contentShape(Rectangle())
                 }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
+                .buttonStyle(.plain)
 
-            if isExpanded {
-                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
-                    GridRow {
-                        Text("Provider")
-                            .foregroundStyle(.secondary)
-                        Text(profile.provider.displayName)
+                if isExpanded {
+                    Divider()
+
+                    Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
+                        GridRow {
+                            Text("Provider")
+                                .foregroundStyle(.secondary)
+                            Text(profile.provider.displayName)
+                        }
+
+                        GridRow {
+                            Text("Connection")
+                                .foregroundStyle(.secondary)
+                            Text(profile.connectionType.displayName)
+                        }
+
+                        GridRow {
+                            Text("Storage")
+                                .foregroundStyle(.secondary)
+                            Text(storagePath)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .textSelection(.enabled)
+                        }
+
+                        GridRow {
+                            Text(runtimePathLabel)
+                                .foregroundStyle(.secondary)
+                            Text(runtimePath)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .textSelection(.enabled)
+                        }
                     }
+                    .font(.callout)
 
-                    GridRow {
-                        Text("Connection")
-                            .foregroundStyle(.secondary)
-                        Text(profile.connectionType.displayName)
-                    }
-
-                    GridRow {
-                        Text("Storage")
-                            .foregroundStyle(.secondary)
-                        Text(storagePath)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .textSelection(.enabled)
-                    }
-
-                    GridRow {
-                        Text(runtimePathLabel)
-                            .foregroundStyle(.secondary)
-                        Text(runtimePath)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .textSelection(.enabled)
-                    }
-                }
-                .font(.callout)
-
-                if profile.provider == .claude {
-                    Text("Claude stays inactive here because consumer subscription auth and automatic usage tracking are still gated by provider policy.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text(profile.provider.supportSummary)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                if usageWindows.isEmpty {
-                    Text("No usage has been observed for this profile yet.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                if let lastError = profile.lastError {
-                    Label(lastError, systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                if let authSession {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Browser auth: \(authSession.state.displayName)")
+                    if profile.provider == .claude {
+                        Text("Claude stays inactive here because consumer subscription auth and automatic usage tracking are still gated by provider policy.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-
-                        Text("Callback: \(authSession.callbackURL.absoluteString)")
-                            .font(.caption2)
+                    } else {
+                        Text(profile.provider.supportSummary)
+                            .font(.caption)
                             .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .textSelection(.enabled)
                     }
+
+                    if usageWindows.isEmpty {
+                        Text("No usage has been observed for this profile yet.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if let lastError = profile.lastError {
+                        Label(lastError, systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if let authSession {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Browser auth: \(authSession.state.displayName)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+
+                            Text("Callback: \(authSession.callbackURL.absoluteString)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .textSelection(.enabled)
+                        }
+                    }
+
+                    HStack(spacing: 8) {
+                        Spacer()
+
+                        Button("Connect", action: onConnect)
+
+                        Button("Edit", action: onEdit)
+
+                        Button(profile.status == .disabled ? "Enable" : "Disable", action: onToggleEnabled)
+
+                        Button("Remove", role: .destructive, action: onRemove)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
-
-                HStack {
-                    Button("Connect", action: onConnect)
-
-                    Button("Edit", action: onEdit)
-
-                    Button(profile.status == .disabled ? "Enable" : "Disable", action: onToggleEnabled)
-
-                    Button("Remove", role: .destructive, action: onRemove)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
             }
         }
-        .padding(18)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .animation(.smooth(duration: 0.18), value: isExpanded)
     }
 
     private var summaryLine: String {

@@ -37,7 +37,7 @@ struct NotificationsSettingsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 16) {
+                    LazyVStack(alignment: .leading, spacing: SettingsLayout.stackSpacing) {
                         ForEach(model.profiles) { profile in
                             NotificationProfileSection(
                                 profile: profile,
@@ -55,8 +55,10 @@ struct NotificationsSettingsView: View {
                             )
                         }
                     }
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 18)
+                    .frame(maxWidth: SettingsLayout.contentMaxWidth, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, SettingsLayout.horizontalPadding)
+                    .padding(.vertical, SettingsLayout.verticalPadding)
                 }
             }
         }
@@ -109,66 +111,66 @@ private struct NotificationProfileSection: View {
     let onEditRule: (AlertRule) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button(action: onToggleExpanded) {
-                HStack(alignment: .center, spacing: 12) {
-                    ProviderLogoView(provider: profile.provider, size: 18)
-                        .frame(width: 18, height: 18)
+        SettingsCard {
+            VStack(alignment: .leading, spacing: 12) {
+                Button(action: onToggleExpanded) {
+                    HStack(alignment: .center, spacing: 12) {
+                        ProviderLogoView(provider: profile.provider, size: 18)
+                            .frame(width: 18, height: 18)
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(primaryTitle)
-                            .font(.headline)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(primaryTitle)
+                                .font(.headline)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
 
-                        Text(summaryLine)
-                            .font(.subheadline)
+                            Text(summaryLine)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+
+                        Spacer(minLength: 8)
+
+                        StatusPill(status: profile.status)
+
+                        Image(systemName: "chevron.right")
+                            .font(.caption.bold())
                             .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                            .frame(width: 16)
                     }
-
-                    Spacer(minLength: 8)
-
-                    StatusPill(status: profile.status)
-
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.caption.bold())
-                        .foregroundStyle(.secondary)
-                        .frame(width: 16)
+                    .contentShape(Rectangle())
                 }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
+                .buttonStyle(.plain)
 
-            if isExpanded {
-                Divider()
-                    .padding(.vertical, 14)
+                if isExpanded {
+                    Divider()
 
-                VStack(alignment: .leading, spacing: 10) {
-                    if rules.isEmpty {
-                        Text("No notification rules available for this profile yet.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(rules) { rule in
-                            NotificationRuleRow(
-                                rule: rule,
-                                onToggleEnabled: { enabled in
-                                    onToggleRuleEnabled(rule, enabled)
-                                },
-                                onEdit: {
-                                    onEditRule(rule)
-                                }
-                            )
+                    VStack(alignment: .leading, spacing: 10) {
+                        if rules.isEmpty {
+                            Text("No notification rules available for this profile yet.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(rules) { rule in
+                                NotificationRuleRow(
+                                    rule: rule,
+                                    onToggleEnabled: { enabled in
+                                        onToggleRuleEnabled(rule, enabled)
+                                    },
+                                    onEdit: {
+                                        onEditRule(rule)
+                                    }
+                                )
+                            }
                         }
                     }
+                    .transition(.opacity)
                 }
-                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .padding(18)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-        .animation(.easeOut(duration: 0.18), value: isExpanded)
+        .animation(.smooth(duration: 0.18), value: isExpanded)
     }
 
     private var primaryTitle: String {
@@ -225,9 +227,10 @@ private struct NotificationRuleRow: View {
 
                     Spacer(minLength: 12)
 
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                    Image(systemName: "chevron.right")
                         .font(.caption.bold())
                         .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
                         .frame(width: 16)
                 }
                 .contentShape(Rectangle())
@@ -236,7 +239,7 @@ private struct NotificationRuleRow: View {
 
             if isExpanded {
                 Divider()
-                    .padding(.vertical, 12)
+                    .padding(.vertical, 8)
 
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(alignment: .center, spacing: 12) {
@@ -281,11 +284,11 @@ private struct NotificationRuleRow: View {
                         .buttonStyle(.bordered)
                     }
                 }
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                .transition(.opacity)
             }
         }
-        .padding(14)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+        .padding(SettingsLayout.sectionPadding)
+        .background(SettingsLayout.sectionFill, in: RoundedRectangle(cornerRadius: SettingsLayout.rowCornerRadius))
     }
 
     private var triggerSummary: String {

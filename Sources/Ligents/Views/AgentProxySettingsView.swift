@@ -1,12 +1,5 @@
 import SwiftUI
 
-private enum AgentProxyLayout {
-    static let contentMaxWidth: CGFloat = 760
-    static let cardPadding: CGFloat = 18
-    static let cardCornerRadius: CGFloat = 14
-    static let labelWidth: CGFloat = 112
-}
-
 struct AgentProxySettingsView: View {
     @Bindable var model: AppModel
     @State private var draft = AgentProxySettings.disabled
@@ -40,14 +33,14 @@ struct AgentProxySettingsView: View {
             Divider()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: SettingsLayout.stackSpacing) {
                     proxyCard
                     environmentCard
                 }
-                .frame(maxWidth: AgentProxyLayout.contentMaxWidth, alignment: .leading)
+                .frame(maxWidth: SettingsLayout.contentMaxWidth, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 24)
-                .padding(.vertical, 22)
+                .padding(.horizontal, SettingsLayout.horizontalPadding)
+                .padding(.vertical, SettingsLayout.verticalPadding)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -62,82 +55,82 @@ struct AgentProxySettingsView: View {
     }
 
     private var proxyCard: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Agent Proxy")
-                .font(.headline)
+        SettingsCard {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Agent Proxy")
+                    .font(.headline)
 
-            Picker("Mode", selection: modeBinding) {
-                ForEach(AgentProxyMode.allCases) { mode in
-                    Text(mode.displayName)
-                        .tag(mode)
-                }
-            }
-            .pickerStyle(.segmented)
-            .frame(maxWidth: 360, alignment: .leading)
-
-            if draft.isEnabled {
-                Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 12) {
-                    GridRow {
-                        fieldLabel("Host")
-                        TextField("Host", text: $draft.host, prompt: Text(draft.mode.defaultHost))
-                            .textFieldStyle(.roundedBorder)
-                            .frame(maxWidth: 360)
-                    }
-
-                    GridRow {
-                        fieldLabel("Port")
-                        TextField("Port", text: portTextBinding, prompt: Text(defaultPortText))
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 120)
-                    }
-
-                    GridRow {
-                        fieldLabel("Username")
-                        TextField("Username", text: $draft.username, prompt: Text("Optional"))
-                            .textFieldStyle(.roundedBorder)
-                            .frame(maxWidth: 260)
-                    }
-
-                    GridRow {
-                        fieldLabel("Password")
-                        SecureField("Password", text: $draft.password, prompt: Text("Optional"))
-                            .textFieldStyle(.roundedBorder)
-                            .frame(maxWidth: 260)
+                Picker("Mode", selection: modeBinding) {
+                    ForEach(AgentProxyMode.allCases) { mode in
+                        Text(mode.displayName)
+                            .tag(mode)
                     }
                 }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 360, alignment: .leading)
 
-                Toggle("Bypass localhost", isOn: $draft.bypassLocalAddresses)
-                    .toggleStyle(.checkbox)
+                if draft.isEnabled {
+                    Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 12) {
+                        GridRow {
+                            fieldLabel("Host")
+                            TextField("Host", text: $draft.host, prompt: Text(draft.mode.defaultHost))
+                                .textFieldStyle(.roundedBorder)
+                                .frame(maxWidth: 360)
+                        }
 
-                validationStatus
+                        GridRow {
+                            fieldLabel("Port")
+                            TextField("Port", text: portTextBinding, prompt: Text(defaultPortText))
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 120)
+                        }
+
+                        GridRow {
+                            fieldLabel("Username")
+                            TextField("Username", text: $draft.username, prompt: Text("Optional"))
+                                .textFieldStyle(.roundedBorder)
+                                .frame(maxWidth: 260)
+                        }
+
+                        GridRow {
+                            fieldLabel("Password")
+                            SecureField("Password", text: $draft.password, prompt: Text("Optional"))
+                                .textFieldStyle(.roundedBorder)
+                                .frame(maxWidth: 260)
+                        }
+                    }
+
+                    Toggle("Bypass localhost", isOn: $draft.bypassLocalAddresses)
+                        .toggleStyle(.checkbox)
+
+                    validationStatus
+                }
             }
         }
-        .padding(AgentProxyLayout.cardPadding)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: AgentProxyLayout.cardCornerRadius, style: .continuous))
     }
 
     private var environmentCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Applied Environment")
-                .font(.headline)
+        SettingsCard {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Applied Environment")
+                    .font(.headline)
 
-            if let proxyURLString = previewSettings.redactedProxyURLString {
-                Text(proxyURLString)
-                    .font(.system(.callout, design: .monospaced))
-                    .textSelection(.enabled)
-                    .lineLimit(2)
+                if let proxyURLString = previewSettings.redactedProxyURLString {
+                    Text(proxyURLString)
+                        .font(.system(.callout, design: .monospaced))
+                        .textSelection(.enabled)
+                        .lineLimit(2)
 
-                Text("Ligents sets HTTP_PROXY, HTTPS_PROXY, ALL_PROXY, and lowercase variants for Codex app-server and ping runs.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else {
-                Text("No app-managed proxy is applied.")
-                    .foregroundStyle(.secondary)
+                    Text("Ligents sets HTTP_PROXY, HTTPS_PROXY, ALL_PROXY, and lowercase variants for Codex app-server and ping runs.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text("No app-managed proxy is applied.")
+                        .foregroundStyle(.secondary)
+                }
             }
         }
-        .padding(AgentProxyLayout.cardPadding)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: AgentProxyLayout.cardCornerRadius, style: .continuous))
     }
 
     @ViewBuilder
@@ -156,7 +149,7 @@ struct AgentProxySettingsView: View {
     private func fieldLabel(_ title: String) -> some View {
         Text(title)
             .foregroundStyle(.secondary)
-            .frame(width: AgentProxyLayout.labelWidth, alignment: .leading)
+            .frame(width: SettingsLayout.labelWidth, alignment: .leading)
     }
 
     private var modeBinding: Binding<AgentProxyMode> {

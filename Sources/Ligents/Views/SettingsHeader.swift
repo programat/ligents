@@ -6,24 +6,32 @@ struct SettingsHeader<Actions: View>: View {
     @ViewBuilder var actions: Actions
 
     var body: some View {
-        HStack(alignment: .center, spacing: 14) {
+        HStack(alignment: .center, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
-                    .font(.system(size: 28, weight: .semibold))
+                    .font(.title2.bold())
 
                 Text(subtitle)
+                    .font(.callout)
                     .foregroundStyle(.secondary)
+                    .lineLimit(2)
             }
 
             Spacer()
 
-            HStack(spacing: 8) {
-                actions
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    actions
+                }
+
+                VStack(alignment: .trailing, spacing: 8) {
+                    actions
+                }
             }
             .buttonStyle(.bordered)
         }
-        .padding(.horizontal, 24)
-        .padding(.top, 20)
-        .padding(.bottom, 16)
+        .padding(.horizontal, SettingsLayout.horizontalPadding)
+        .padding(.top, 18)
+        .padding(.bottom, 14)
     }
 }

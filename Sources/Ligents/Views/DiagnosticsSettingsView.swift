@@ -17,8 +17,8 @@ struct DiagnosticsSettingsView: View {
             Divider()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
-                    VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: SettingsLayout.stackSpacing) {
+                    SettingsCard {
                         Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 10) {
                             GridRow {
                                 Text("Profiles")
@@ -53,29 +53,29 @@ struct DiagnosticsSettingsView: View {
                             }
                         }
                     }
-                    .padding(18)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Adapter modes")
-                            .font(.headline)
+                    SettingsCard {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Adapter modes")
+                                .font(.headline)
 
-                        HStack {
-                            ProviderLogoView(provider: .codex, size: 16)
-                            Text("Codex: managed OAuth, isolated CODEX_HOME.")
-                        }
+                            HStack {
+                                ProviderLogoView(provider: .codex, size: 16)
+                                Text("Codex: managed OAuth, isolated CODEX_HOME.")
+                            }
 
-                        HStack {
-                            ProviderLogoView(provider: .claude, size: 16)
-                            Text("Claude: gated until automatic usage extraction is validated.")
+                            HStack {
+                                ProviderLogoView(provider: .claude, size: 16)
+                                Text("Claude: gated until automatic usage extraction is validated.")
+                            }
                         }
                     }
                     .foregroundStyle(.secondary)
-                    .padding(18)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 22)
+                .frame(maxWidth: SettingsLayout.contentMaxWidth, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, SettingsLayout.horizontalPadding)
+                .padding(.vertical, SettingsLayout.verticalPadding)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

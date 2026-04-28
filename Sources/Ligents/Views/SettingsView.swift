@@ -69,7 +69,11 @@ private struct SettingsDetailPane<Content: View>: View {
 
     var body: some View {
         content
-            .frame(maxWidth: 980, maxHeight: .infinity, alignment: .topLeading)
+            .frame(
+                maxWidth: SettingsLayout.wideContentMaxWidth + SettingsLayout.horizontalPadding * 2,
+                maxHeight: .infinity,
+                alignment: .topLeading
+            )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }

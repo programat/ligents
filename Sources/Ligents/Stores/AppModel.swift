@@ -730,12 +730,15 @@ final class AppModel {
             base: baseProfile,
             refreshed: appliedResult.profile
         )
-        appliedResult.usageWindows = usageWindowsWithStableIDs(
-            appliedResult.usageWindows,
-            previousWindows: previousWindows
+        let windowMerge = UsageWindowRefreshMerger.merge(
+            refreshedWindows: appliedResult.usageWindows,
+            previousWindows: previousWindows,
+            now: now
         )
+        let refreshedWindows = windowMerge.refreshedWindows
+        appliedResult.usageWindows = windowMerge.displayWindows
         if var snapshot = appliedResult.snapshot {
-            snapshot.normalizedWindows = appliedResult.usageWindows
+            snapshot.normalizedWindows = refreshedWindows
             appliedResult.snapshot = snapshot
         }
 
@@ -746,7 +749,7 @@ final class AppModel {
         let evaluation = notificationRuleEvaluator.evaluate(
             profile: appliedResult.profile,
             previousWindows: previousWindows,
-            newWindows: appliedResult.usageWindows,
+            newWindows: refreshedWindows,
             rules: alertRules(for: profile.id),
             existingDedupStates: notificationDedupStates.filter { $0.profileId == profile.id }
         )
@@ -807,24 +810,6 @@ final class AppModel {
 
         activeRefreshProfileIDs.insert(profileId)
         return true
-    }
-
-    private func usageWindowsWithStableIDs(
-        _ windows: [UsageWindow],
-        previousWindows: [UsageWindow]
-    ) -> [UsageWindow] {
-        var idsByProviderWindowID: [String: UUID] = [:]
-        for window in previousWindows {
-            idsByProviderWindowID[window.providerWindowId] = window.id
-        }
-
-        return windows.map { window in
-            var stableWindow = window
-            if let existingID = idsByProviderWindowID[window.providerWindowId] {
-                stableWindow.id = existingID
-            }
-            return stableWindow
-        }
     }
 
     private func appendSnapshot(_ snapshot: SyncSnapshot) {

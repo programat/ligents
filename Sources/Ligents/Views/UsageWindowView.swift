@@ -2,6 +2,7 @@ import SwiftUI
 
 struct UsageWindowView: View {
     let window: UsageWindow
+    var isMuted = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -19,7 +20,7 @@ struct UsageWindowView: View {
 
                 Text(remainingLabel)
                     .font(.caption.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(isUsageMuted ? .secondary : .primary)
             }
 
             GeometryReader { geometry in
@@ -71,6 +72,10 @@ struct UsageWindowView: View {
     }
 
     private var tint: Color {
+        if isUsageMuted {
+            return .gray
+        }
+
         guard let remainingPercent = resolvedRemainingPercent else {
             return .gray
         }
@@ -84,6 +89,10 @@ struct UsageWindowView: View {
         }
 
         return .green
+    }
+
+    private var isUsageMuted: Bool {
+        isMuted || window.state == .stale
     }
 
     private var resetText: String {

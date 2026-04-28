@@ -73,7 +73,7 @@ struct ProfileRowView: View {
         } else if isExpanded {
             VStack(spacing: 10) {
                 ForEach(usageWindows) { window in
-                    UsageWindowView(window: window)
+                    UsageWindowView(window: window, isMuted: profile.status == .disabled)
                 }
 
                 expandedMeta

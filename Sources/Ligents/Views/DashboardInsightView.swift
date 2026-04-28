@@ -113,11 +113,23 @@ private struct ProfileRingBadgeView: View {
     }
 
     private var sessionColor: Color {
-        color(for: snapshot.sessionRemaining)
+        if isMuted(window: snapshot.sessionWindow) {
+            return .gray
+        }
+
+        return color(for: snapshot.sessionRemaining)
     }
 
     private var weeklyColor: Color {
-        color(for: snapshot.weeklyRemaining)
+        if isMuted(window: snapshot.weeklyWindow) {
+            return .gray
+        }
+
+        return color(for: snapshot.weeklyRemaining)
+    }
+
+    private func isMuted(window: UsageWindow?) -> Bool {
+        snapshot.profile.status == .disabled || window?.state == .stale || window == nil
     }
 
     private func color(for remaining: Double) -> Color {

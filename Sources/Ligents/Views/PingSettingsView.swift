@@ -1,12 +1,12 @@
 import SwiftUI
 
 private enum ReadinessLayout {
-    static let contentMaxWidth: CGFloat = 860
-    static let stackSpacing: CGFloat = 18
-    static let cardPadding: CGFloat = 18
-    static let sectionPadding: CGFloat = 14
-    static let cardCornerRadius: CGFloat = 18
-    static let innerCornerRadius: CGFloat = 14
+    static let contentMaxWidth: CGFloat = SettingsLayout.wideContentMaxWidth
+    static let stackSpacing: CGFloat = SettingsLayout.stackSpacing
+    static let cardPadding: CGFloat = SettingsLayout.cardPadding
+    static let sectionPadding: CGFloat = SettingsLayout.sectionPadding
+    static let cardCornerRadius: CGFloat = SettingsLayout.cardCornerRadius
+    static let innerCornerRadius: CGFloat = SettingsLayout.rowCornerRadius
 }
 
 struct PingSettingsView: View {
@@ -81,8 +81,8 @@ struct PingSettingsView: View {
                     }
                     .frame(maxWidth: ReadinessLayout.contentMaxWidth, alignment: .leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 28)
-                    .padding(.vertical, 24)
+                    .padding(.horizontal, SettingsLayout.horizontalPadding)
+                    .padding(.vertical, SettingsLayout.verticalPadding)
                 }
             }
         }
@@ -130,7 +130,7 @@ private struct PingProfileCard: View {
             Button(action: onToggleExpanded) {
                 HStack(alignment: .center, spacing: 12) {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        RoundedRectangle(cornerRadius: SettingsLayout.rowCornerRadius)
                             .fill(BrandIdentity.accentSoft)
 
                         ProviderLogoView(provider: profile.provider, size: 18)
@@ -203,9 +203,9 @@ private struct PingProfileCard: View {
             }
         }
         .padding(ReadinessLayout.cardPadding)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: ReadinessLayout.cardCornerRadius, style: .continuous))
+        .background(SettingsLayout.cardFill, in: RoundedRectangle(cornerRadius: ReadinessLayout.cardCornerRadius))
         .overlay {
-            RoundedRectangle(cornerRadius: ReadinessLayout.cardCornerRadius, style: .continuous)
+            RoundedRectangle(cornerRadius: ReadinessLayout.cardCornerRadius)
                 .strokeBorder(DashboardPalette.hairline, lineWidth: 1)
         }
     }
@@ -252,7 +252,7 @@ private struct PingProfileCard: View {
                 }
             }
             .padding(ReadinessLayout.sectionPadding)
-            .background(.background.secondary, in: RoundedRectangle(cornerRadius: ReadinessLayout.innerCornerRadius, style: .continuous))
+            .background(SettingsLayout.sectionFill, in: RoundedRectangle(cornerRadius: ReadinessLayout.innerCornerRadius))
         }
     }
 
@@ -293,7 +293,7 @@ private struct PingProfileCard: View {
                 reliabilityDisclosure
             }
             .padding(ReadinessLayout.sectionPadding)
-            .background(.background.secondary, in: RoundedRectangle(cornerRadius: ReadinessLayout.innerCornerRadius, style: .continuous))
+            .background(SettingsLayout.sectionFill, in: RoundedRectangle(cornerRadius: ReadinessLayout.innerCornerRadius))
         }
         .disabled(!settings.enabled)
     }
@@ -538,7 +538,7 @@ private struct PingOverviewCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Overview")
-                .font(.title3.weight(.semibold))
+                .font(.headline)
 
             Text("Pick a ready time. Ligents can catch up after wake and suggest a wake command when needed.")
                 .foregroundStyle(.secondary)
@@ -555,17 +555,10 @@ private struct PingOverviewCard: View {
             }
         }
         .padding(ReadinessLayout.cardPadding)
-        .background(
-            LinearGradient(
-                colors: [BrandIdentity.accentSoft, Color.clear],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            ),
-            in: RoundedRectangle(cornerRadius: ReadinessLayout.cardCornerRadius, style: .continuous)
-        )
+        .background(SettingsLayout.cardFill, in: RoundedRectangle(cornerRadius: ReadinessLayout.cardCornerRadius))
         .overlay {
-            RoundedRectangle(cornerRadius: ReadinessLayout.cardCornerRadius, style: .continuous)
-                .strokeBorder(BrandIdentity.accent.opacity(0.18), lineWidth: 1)
+            RoundedRectangle(cornerRadius: ReadinessLayout.cardCornerRadius)
+                .strokeBorder(DashboardPalette.hairline, lineWidth: 1)
         }
     }
 
@@ -634,10 +627,10 @@ private struct WakeCommandCard: View {
                 help: "Copy sched inspection command"
             )
         }
-        .padding(18)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: ReadinessLayout.cardCornerRadius, style: .continuous))
+        .padding(ReadinessLayout.cardPadding)
+        .background(SettingsLayout.cardFill, in: RoundedRectangle(cornerRadius: ReadinessLayout.cardCornerRadius))
         .overlay {
-            RoundedRectangle(cornerRadius: ReadinessLayout.cardCornerRadius, style: .continuous)
+            RoundedRectangle(cornerRadius: ReadinessLayout.cardCornerRadius)
                 .strokeBorder(DashboardPalette.hairline, lineWidth: 1)
         }
     }
@@ -653,11 +646,10 @@ private struct WakeCommandCard: View {
                 .font(.callout.weight(.medium))
                 .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: ReadinessLayout.cardCornerRadius, style: .continuous))
+        .padding(ReadinessLayout.cardPadding)
+        .background(SettingsLayout.cardFill, in: RoundedRectangle(cornerRadius: ReadinessLayout.cardCornerRadius))
         .overlay {
-            RoundedRectangle(cornerRadius: ReadinessLayout.cardCornerRadius, style: .continuous)
+            RoundedRectangle(cornerRadius: ReadinessLayout.cardCornerRadius)
                 .strokeBorder(DashboardPalette.hairline, lineWidth: 1)
         }
     }
@@ -678,8 +670,8 @@ private struct OverviewMetric: View {
                 .foregroundStyle(.primary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: ReadinessLayout.innerCornerRadius, style: .continuous))
+        .padding(ReadinessLayout.sectionPadding)
+        .background(SettingsLayout.sectionFill, in: RoundedRectangle(cornerRadius: ReadinessLayout.innerCornerRadius))
     }
 }
 
@@ -710,7 +702,7 @@ private struct CommandRow: View {
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
-                .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(SettingsLayout.sectionFill, in: RoundedRectangle(cornerRadius: SettingsLayout.rowCornerRadius))
         }
     }
 }

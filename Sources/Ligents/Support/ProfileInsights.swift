@@ -69,8 +69,8 @@ enum ProfileInsights {
             return ProfileUsageSnapshot(
                 profile: profile,
                 usageWindows: windows,
-                sessionWindow: preferredWindow(in: windows, kind: .session),
-                weeklyWindow: preferredWindow(in: windows, kind: .weekly)
+                sessionWindow: primaryWindow(in: windows, kind: .session),
+                weeklyWindow: primaryWindow(in: windows, kind: .weekly)
             )
         }
     }
@@ -95,6 +95,12 @@ enum ProfileInsights {
             .min(by: isLowerCapacityWindow)
     }
 
+    static func primaryWindow(in windows: [UsageWindow], kind: UsageWindowKind) -> UsageWindow? {
+        windows
+            .filter { $0.kind == kind }
+            .min(by: isPrimaryWindowOrderedBefore)
+    }
+
     static func remainingPercent(for window: UsageWindow?) -> Double? {
         guard let window else {
             return nil
@@ -104,7 +110,7 @@ enum ProfileInsights {
     }
 
     static func remainingPercent(in windows: [UsageWindow], kind: UsageWindowKind) -> Double? {
-        remainingPercent(for: preferredWindow(in: windows, kind: kind))
+        remainingPercent(for: primaryWindow(in: windows, kind: kind))
     }
 
     private static func isWindowOrderedBefore(_ lhs: UsageWindow, _ rhs: UsageWindow) -> Bool {
@@ -119,7 +125,41 @@ enum ProfileInsights {
         UsageWindowKind.allCases.firstIndex(of: kind) ?? UsageWindowKind.allCases.count
     }
 
+    private static func isPrimaryWindowOrderedBefore(_ lhs: UsageWindow, _ rhs: UsageWindow) -> Bool {
+        let lhsIsMain = isMainCodexWindow(lhs)
+        let rhsIsMain = isMainCodexWindow(rhs)
+        if lhsIsMain != rhsIsMain {
+            return lhsIsMain
+        }
+
+        return isLowerCapacityWindow(lhs, rhs)
+    }
+
+    private static func isMainCodexWindow(_ window: UsageWindow) -> Bool {
+        baseProviderWindowID(window.providerWindowId) == "codex"
+    }
+
+    private static func baseProviderWindowID(_ providerWindowId: String) -> String {
+        if providerWindowId.hasSuffix(".primary") {
+            return String(providerWindowId.dropLast(".primary".count))
+        }
+
+        if providerWindowId.hasSuffix(".secondary") {
+            return String(providerWindowId.dropLast(".secondary".count))
+        }
+
+        return providerWindowId
+    }
+
     private static func isLowerCapacityWindow(_ lhs: UsageWindow, _ rhs: UsageWindow) -> Bool {
+        if lhs.state == .stale, rhs.state != .stale {
+            return false
+        }
+
+        if lhs.state != .stale, rhs.state == .stale {
+            return true
+        }
+
         let lhsRemaining = remainingPercent(for: lhs) ?? Double.greatestFiniteMagnitude
         let rhsRemaining = remainingPercent(for: rhs) ?? Double.greatestFiniteMagnitude
         if lhsRemaining != rhsRemaining {

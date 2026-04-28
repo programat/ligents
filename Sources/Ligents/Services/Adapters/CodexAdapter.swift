@@ -90,15 +90,46 @@ struct CodexAdapter: UsageAdapter {
         )
     }
 
-    private func normalize(result: CodexRateLimitsReadResult, profileId: UUID) -> [UsageWindow] {
-        let limits = result.rateLimitsByLimitId?.values.sorted {
-            ($0.limitId ?? "") < ($1.limitId ?? "")
-        } ?? result.rateLimits.map { [$0] } ?? []
+    func normalize(
+        result: CodexRateLimitsReadResult,
+        profileId: UUID,
+        observedAt: Date = .now
+    ) -> [UsageWindow] {
+        let limits: [(fallbackID: String, limit: CodexRateLimit)]
+        if let rateLimitsByLimitId = result.rateLimitsByLimitId {
+            limits = rateLimitsByLimitId
+                .map { key, limit in (fallbackID: key, limit: limit) }
+                .sorted { lhs, rhs in
+                    resolvedLimitID(for: lhs.limit, fallbackID: lhs.fallbackID) <
+                        resolvedLimitID(for: rhs.limit, fallbackID: rhs.fallbackID)
+                }
+        } else if let rateLimits = result.rateLimits {
+            limits = [(fallbackID: "codex", limit: rateLimits)]
+        } else {
+            limits = []
+        }
 
-        return limits.flatMap { limit in
-            [
-                normalizedWindow(limit: limit, bucket: limit.primary, suffix: "primary", kind: .session, profileId: profileId),
-                normalizedWindow(limit: limit, bucket: limit.secondary, suffix: "secondary", kind: .weekly, profileId: profileId)
+        return limits.flatMap { fallbackID, limit -> [UsageWindow] in
+            let limitID = resolvedLimitID(for: limit, fallbackID: fallbackID)
+            return [
+                normalizedWindow(
+                    limit: limit,
+                    limitID: limitID,
+                    bucket: limit.primary,
+                    suffix: "primary",
+                    fallbackKind: .session,
+                    profileId: profileId,
+                    observedAt: observedAt
+                ),
+                normalizedWindow(
+                    limit: limit,
+                    limitID: limitID,
+                    bucket: limit.secondary,
+                    suffix: "secondary",
+                    fallbackKind: .weekly,
+                    profileId: profileId,
+                    observedAt: observedAt
+                )
             ]
             .compactMap { $0 }
         }
@@ -106,10 +137,12 @@ struct CodexAdapter: UsageAdapter {
 
     private func normalizedWindow(
         limit: CodexRateLimit,
+        limitID: String,
         bucket: CodexRateLimitWindow?,
         suffix: String,
-        kind: UsageWindowKind,
-        profileId: UUID
+        fallbackKind: UsageWindowKind,
+        profileId: UUID,
+        observedAt: Date
     ) -> UsageWindow? {
         guard let bucket else {
             return nil
@@ -117,20 +150,52 @@ struct CodexAdapter: UsageAdapter {
 
         let usedPercent = bucket.usedPercent
         let resetsAt = bucket.resetsAt.map { Date(timeIntervalSince1970: $0) }
-        let id = limit.limitId ?? UUID().uuidString
+        let kind = kind(for: bucket, fallbackKind: fallbackKind)
         return UsageWindow(
             id: UUID(),
             profileId: profileId,
-            providerWindowId: "\(id).\(suffix)",
-            label: limit.limitName ?? id,
+            providerWindowId: "\(limitID).\(suffix)",
+            label: limit.limitName ?? limitID,
             kind: kind,
             usedPercent: usedPercent,
             remainingPercent: usedPercent.map { max(0, 100 - $0) },
             resetsAt: resetsAt,
             state: state(for: usedPercent),
-            observedAt: .now,
+            observedAt: observedAt,
             rawPayloadRef: nil
         )
+    }
+
+    private func resolvedLimitID(for limit: CodexRateLimit, fallbackID: String) -> String {
+        if let limitId = limit.limitId, !limitId.isEmpty {
+            return limitId
+        }
+
+        if !fallbackID.isEmpty {
+            return fallbackID
+        }
+
+        return "codex"
+    }
+
+    private func kind(for bucket: CodexRateLimitWindow, fallbackKind: UsageWindowKind) -> UsageWindowKind {
+        guard let duration = bucket.windowDurationMins else {
+            return fallbackKind
+        }
+
+        if duration >= 28 * 24 * 60 {
+            return .monthly
+        }
+
+        if duration >= 5 * 24 * 60 {
+            return .weekly
+        }
+
+        if duration <= 12 * 60 {
+            return .session
+        }
+
+        return fallbackKind
     }
 
     private func state(for usedPercent: Double?) -> UsageState {
