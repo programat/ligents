@@ -63,8 +63,18 @@ enum ProfileInsights {
         profiles: [ProviderProfile],
         usageWindows: [UsageWindow]
     ) -> [ProfileUsageSnapshot] {
+        snapshots(
+            profiles: profiles,
+            usageWindowsByProfileID: windowsByProfileID(in: usageWindows)
+        )
+    }
+
+    static func snapshots(
+        profiles: [ProviderProfile],
+        usageWindowsByProfileID: [UUID: [UsageWindow]]
+    ) -> [ProfileUsageSnapshot] {
         profiles.map { profile in
-            let windows = windows(for: profile.id, in: usageWindows)
+            let windows = usageWindowsByProfileID[profile.id] ?? []
 
             return ProfileUsageSnapshot(
                 profile: profile,
@@ -87,6 +97,13 @@ enum ProfileInsights {
         usageWindows
             .filter { $0.profileId == profileId }
             .sorted(by: isWindowOrderedBefore)
+    }
+
+    static func windowsByProfileID(in usageWindows: [UsageWindow]) -> [UUID: [UsageWindow]] {
+        Dictionary(grouping: usageWindows, by: \.profileId)
+            .mapValues { windows in
+                windows.sorted(by: isWindowOrderedBefore)
+            }
     }
 
     static func preferredWindow(in windows: [UsageWindow], kind: UsageWindowKind) -> UsageWindow? {

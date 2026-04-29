@@ -3,6 +3,8 @@ import SwiftUI
 struct ProfileRowView: View {
     let profile: ProviderProfile
     let usageWindows: [UsageWindow]
+    var isPinned = false
+    var onTogglePinned: (() -> Void)?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isExpanded = false
     @State private var isHovering = false
@@ -52,7 +54,6 @@ struct ProfileRowView: View {
                     .transition(.opacity)
             }
         }
-        .animation(expansionAnimation, value: isExpanded)
         .onHover { isHovering = $0 }
     }
 
@@ -124,6 +125,27 @@ struct ProfileRowView: View {
 
     private var trailingControls: some View {
         HStack(alignment: .center, spacing: 8) {
+            if onTogglePinned != nil {
+                Button(action: togglePinned) {
+                    Image(systemName: isPinned ? "pin.fill" : "pin")
+                        .font(.caption.weight(.semibold))
+                        .frame(width: 24, height: 24)
+                        .foregroundStyle(pinForeground)
+                        .background(
+                            pinBackground,
+                            in: RoundedRectangle(cornerRadius: DashboardPalette.controlCornerRadius, style: .continuous)
+                        )
+                        .overlay {
+                            RoundedRectangle(cornerRadius: DashboardPalette.controlCornerRadius, style: .continuous)
+                                .strokeBorder(pinBorder, lineWidth: 1)
+                        }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(isPinned ? "Unpin subscription" : "Pin subscription")
+                .help(isPinned ? "Unpin subscription" : "Pin subscription")
+                .opacity(isPinned || isHovering ? 1 : 0.58)
+            }
+
             StatusPill(status: profile.status)
 
             if !usageWindows.isEmpty {
@@ -171,6 +193,22 @@ struct ProfileRowView: View {
         }
         .font(.caption)
         .foregroundStyle(.secondary)
+    }
+
+    private var pinBackground: Color {
+        isPinned ? Color.accentColor.opacity(0.12) : DashboardPalette.surfaceFill
+    }
+
+    private var pinBorder: Color {
+        isPinned ? Color.accentColor.opacity(0.20) : DashboardPalette.hairline
+    }
+
+    private var pinForeground: Color {
+        isPinned ? Color.accentColor : Color.secondary
+    }
+
+    private func togglePinned() {
+        onTogglePinned?()
     }
 
     private func summaryMetric(title: String, value: String) -> some View {

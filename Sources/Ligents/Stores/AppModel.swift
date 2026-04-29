@@ -32,6 +32,7 @@ final class AppModel {
     var syncMessage = "Ready"
     var notificationsAuthorized = false
     var notificationAuthorizationState: NotificationAuthorizationState = .unknown
+    var pinnedProfileIDs: Set<UUID> = []
 
     private let persistenceStore = PersistenceStore()
     private let storageResolver = ProfileStorageResolver()
@@ -66,6 +67,26 @@ final class AppModel {
 
     func usageWindows(for profileId: UUID) -> [UsageWindow] {
         ProfileInsights.windows(for: profileId, in: usageWindows)
+    }
+
+    func isProfilePinned(_ profile: ProviderProfile) -> Bool {
+        pinnedProfileIDs.contains(profile.id)
+    }
+
+    func toggleProfilePinned(_ profile: ProviderProfile) {
+        guard profiles.contains(where: { $0.id == profile.id }) else {
+            return
+        }
+
+        if pinnedProfileIDs.contains(profile.id) {
+            pinnedProfileIDs.remove(profile.id)
+            syncMessage = "Unpinned \(profile.displayName)"
+        } else {
+            pinnedProfileIDs.insert(profile.id)
+            syncMessage = "Pinned \(profile.displayName)"
+        }
+
+        save()
     }
 
     func alertRules(for profileId: UUID) -> [AlertRule] {
@@ -240,6 +261,7 @@ final class AppModel {
         }
 
         profiles.removeAll { $0.id == profile.id }
+        pinnedProfileIDs.remove(profile.id)
         usageWindows.removeAll { $0.profileId == profile.id }
         alertRules.removeAll { $0.profileId == profile.id }
         snapshots.removeAll { $0.profileId == profile.id }
@@ -470,7 +492,11 @@ final class AppModel {
                 return
             }
 
-            profiles[currentIndex].status = .authRequired
+            if let adapterFailure = error as? AdapterFailure {
+                profiles[currentIndex].status = adapterFailure.profileStatus
+            } else {
+                profiles[currentIndex].status = .error
+            }
             profiles[currentIndex].lastError = error.localizedDescription
             profiles[currentIndex].updatedAt = .now
             syncMessage = "Codex login failed"
@@ -555,6 +581,7 @@ final class AppModel {
             }
 
             profiles = state.profiles
+            pinnedProfileIDs = Set(state.pinnedProfileIDs)
             usageWindows = state.usageWindows
             alertRules = state.alertRules
             snapshots = state.snapshots
@@ -566,8 +593,10 @@ final class AppModel {
             let originalAlertRules = alertRules
             let originalPingSettings = pingSettings
             let originalSnapshots = snapshots
+            let originalPinnedProfileIDs = pinnedProfileIDs
             normalizeAlertRules()
             normalizePingSettings()
+            normalizePinnedProfileIDs()
             pruneSnapshots()
             syncMessage = if let proxyPasswordLoadError {
                 "Loaded local state; proxy password unavailable: \(proxyPasswordLoadError.localizedDescription)"
@@ -576,7 +605,8 @@ final class AppModel {
             }
             if alertRules != originalAlertRules ||
                 pingSettings != originalPingSettings ||
-                snapshots != originalSnapshots {
+                snapshots != originalSnapshots ||
+                pinnedProfileIDs != originalPinnedProfileIDs {
                 save()
             }
         } catch {
@@ -589,6 +619,7 @@ final class AppModel {
             pingSettings = []
             pingExecutionRecords = []
             agentProxySettings = .disabled
+            pinnedProfileIDs = []
             syncMessage = "Local state unavailable"
         }
     }
@@ -1185,6 +1216,7 @@ final class AppModel {
                 AppPersistenceState(
                     schemaVersion: AppPersistenceState.currentSchemaVersion,
                     profiles: profiles,
+                    pinnedProfileIDs: sortedPinnedProfileIDs,
                     usageWindows: usageWindows,
                     alertRules: alertRules,
                     snapshots: snapshots,
@@ -1367,6 +1399,17 @@ final class AppModel {
         pingSettings = normalized
         pingExecutionRecords.removeAll { record in
             !profiles.contains(where: { $0.id == record.profileId })
+        }
+    }
+
+    private func normalizePinnedProfileIDs() {
+        let currentProfileIDs = Set(profiles.map(\.id))
+        pinnedProfileIDs.formIntersection(currentProfileIDs)
+    }
+
+    private var sortedPinnedProfileIDs: [UUID] {
+        pinnedProfileIDs.sorted { lhs, rhs in
+            lhs.uuidString < rhs.uuidString
         }
     }
 

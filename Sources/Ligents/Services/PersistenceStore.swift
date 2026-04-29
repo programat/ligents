@@ -1,10 +1,11 @@
 import Foundation
 
 struct AppPersistenceState: Codable, Equatable {
-    static let currentSchemaVersion = 3
+    static let currentSchemaVersion = 4
 
     var schemaVersion: Int
     var profiles: [ProviderProfile]
+    var pinnedProfileIDs: [UUID]
     var usageWindows: [UsageWindow]
     var alertRules: [AlertRule]
     var snapshots: [SyncSnapshot]
@@ -18,6 +19,7 @@ struct AppPersistenceState: Codable, Equatable {
         AppPersistenceState(
             schemaVersion: currentSchemaVersion,
             profiles: [],
+            pinnedProfileIDs: [],
             usageWindows: [],
             alertRules: [],
             snapshots: [],
@@ -32,6 +34,7 @@ struct AppPersistenceState: Codable, Equatable {
 
 private struct LegacyAppPersistenceState: Codable {
     var profiles: [ProviderProfile]
+    var pinnedProfileIDs: [UUID]?
     var usageWindows: [UsageWindow]
     var alertRules: [AlertRule]
     var snapshots: [SyncSnapshot]
@@ -95,6 +98,7 @@ struct PersistenceStore {
             return AppPersistenceState(
                 schemaVersion: AppPersistenceState.currentSchemaVersion,
                 profiles: legacy.profiles,
+                pinnedProfileIDs: legacy.pinnedProfileIDs ?? [],
                 usageWindows: legacy.usageWindows,
                 alertRules: legacy.alertRules,
                 snapshots: legacy.snapshots,

@@ -2,10 +2,7 @@ import SwiftUI
 
 struct DashboardInsightView: View {
     let snapshots: [ProfileUsageSnapshot]
-
-    private var recommended: ProfileUsageSnapshot? {
-        ProfileInsights.recommended(from: snapshots)
-    }
+    let recommended: ProfileUsageSnapshot?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -50,7 +47,26 @@ struct DashboardInsightView: View {
                 }
                 .padding(.vertical, 2)
             }
+            .scrollClipDisabled()
         }
+    }
+}
+
+private struct ProfileRingErrorGlow: View {
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(Color.red.opacity(0.20), lineWidth: 9)
+                .frame(width: 48, height: 48)
+                .blur(radius: 9)
+
+            Circle()
+                .stroke(Color.red.opacity(0.24), lineWidth: 5)
+                .frame(width: 42, height: 42)
+                .blur(radius: 5)
+        }
+        .frame(width: 62, height: 62)
+        .allowsHitTesting(false)
     }
 }
 
@@ -62,7 +78,7 @@ private struct ProfileRingBadgeView: View {
         VStack(spacing: 6) {
             ZStack {
                 Circle()
-                    .stroke(Color.primary.opacity(0.10), lineWidth: 5)
+                    .stroke(outerTrackColor, lineWidth: 5)
 
                 Circle()
                     .trim(from: 0, to: sessionProgress)
@@ -82,8 +98,19 @@ private struct ProfileRingBadgeView: View {
                 ProviderLogoView(provider: snapshot.profile.provider, size: 14)
             }
             .frame(width: 36, height: 36)
+            .background {
+                if hasProfileError {
+                    ProfileRingErrorGlow()
+                }
+            }
             .overlay(alignment: .topTrailing) {
-                if isRecommended {
+                if hasProfileError {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.red, DashboardPalette.windowBackground)
+                        .background(Color.black.opacity(0.001), in: Circle())
+                        .offset(x: 3, y: -3)
+                } else if isRecommended {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.caption2)
                         .foregroundStyle(.green)
@@ -101,7 +128,7 @@ private struct ProfileRingBadgeView: View {
                 .frame(width: 58)
         }
         .padding(.vertical, 2)
-        .help(snapshot.recommendationSummary)
+        .help(helpText)
     }
 
     private var sessionProgress: Double {
@@ -126,6 +153,22 @@ private struct ProfileRingBadgeView: View {
         }
 
         return color(for: snapshot.weeklyRemaining)
+    }
+
+    private var hasProfileError: Bool {
+        snapshot.profile.status == .error
+    }
+
+    private var outerTrackColor: Color {
+        Color.primary.opacity(0.10)
+    }
+
+    private var helpText: String {
+        if hasProfileError, let lastError = snapshot.profile.lastError {
+            return "\(snapshot.recommendationSummary)\n\(lastError)"
+        }
+
+        return snapshot.recommendationSummary
     }
 
     private func isMuted(window: UsageWindow?) -> Bool {

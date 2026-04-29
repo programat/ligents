@@ -4,11 +4,30 @@ import SwiftUI
 struct MenuBarDashboardView: View {
     @Bindable var model: AppModel
     @Environment(\.openWindow) private var openWindow
+    @State private var frozenDashboardState: DashboardViewState?
 
-    private var snapshots: [ProfileUsageSnapshot] {
-        ProfileInsights.snapshots(
+    private var dashboardState: DashboardViewState {
+        frozenDashboardState ?? liveDashboardState
+    }
+
+    private var liveDashboardState: DashboardViewState {
+        let usageWindowsByProfileID = ProfileInsights.windowsByProfileID(in: model.usageWindows)
+        let snapshots = ProfileInsights.snapshots(
             profiles: model.profiles,
-            usageWindows: model.usageWindows
+            usageWindowsByProfileID: usageWindowsByProfileID
+        )
+        let recommended = ProfileInsights.recommended(from: snapshots)
+
+        return DashboardViewState(
+            snapshots: snapshots,
+            recommended: recommended,
+            profiles: sortedProfiles(using: snapshots).map { profile in
+                DashboardProfileRowState(
+                    profile: profile,
+                    usageWindows: usageWindowsByProfileID[profile.id] ?? [],
+                    isPinned: model.isProfilePinned(profile)
+                )
+            }
         )
     }
 
@@ -24,9 +43,12 @@ struct MenuBarDashboardView: View {
                 )
                 .frame(width: 380, height: 180)
             } else {
-                ScrollView {
+                DashboardResizableScrollView(onResizePhaseChanged: handleResizePhaseChanged) {
                     LazyVStack(alignment: .leading, spacing: 12) {
-                        DashboardInsightView(snapshots: snapshots)
+                        DashboardInsightView(
+                            snapshots: dashboardState.snapshots,
+                            recommended: dashboardState.recommended
+                        )
                             .dashboardSurface()
 
                         DashboardSectionHeaderView(
@@ -35,20 +57,20 @@ struct MenuBarDashboardView: View {
                         )
 
                         VStack(spacing: 10) {
-                            ForEach(sortedProfiles) { profile in
+                            ForEach(dashboardState.profiles) { row in
                                 ProfileRowView(
-                                    profile: profile,
-                                    usageWindows: model.usageWindows(for: profile.id)
+                                    profile: row.profile,
+                                    usageWindows: row.usageWindows,
+                                    isPinned: row.isPinned,
+                                    onTogglePinned: {
+                                        model.toggleProfilePinned(row.profile)
+                                    }
                                 )
-                                .dashboardSurface()
+                                .dashboardSurface(isError: row.isError)
                             }
                         }
                     }
-                }
-                .padding(.vertical, 3)
-                .frame(width: DashboardPalette.contentWidth)
-                .frame(maxHeight: DashboardPalette.scrollMaxHeight)
-                .safeAreaInset(edge: .bottom, spacing: 0) {
+                } footer: {
                     footer
                 }
             }
@@ -137,7 +159,6 @@ struct MenuBarDashboardView: View {
         .padding(.horizontal, 12)
         .frame(height: DashboardPalette.footerHeight)
         .frame(maxWidth: .infinity)
-        .background(.thinMaterial)
     }
 
     private var subscriptionSummary: String {
@@ -164,7 +185,7 @@ struct MenuBarDashboardView: View {
         return "Refreshed \(DisplayFormatters.syncTimestampLabel(for: latest))"
     }
 
-    private var sortedProfiles: [ProviderProfile] {
+    private func sortedProfiles(using snapshots: [ProfileUsageSnapshot]) -> [ProviderProfile] {
         let ranking = Dictionary(
             uniqueKeysWithValues: snapshots.enumerated().map { index, snapshot in
                 (snapshot.profile.id, snapshot.recommendationScore - Double(index) * 0.001)
@@ -172,6 +193,12 @@ struct MenuBarDashboardView: View {
         )
 
         return model.profiles.sorted { lhs, rhs in
+            let leftPinned = model.isProfilePinned(lhs)
+            let rightPinned = model.isProfilePinned(rhs)
+            if leftPinned != rightPinned {
+                return leftPinned
+            }
+
             let leftScore = ranking[lhs.id] ?? -1000
             let rightScore = ranking[rhs.id] ?? -1000
 
@@ -180,6 +207,14 @@ struct MenuBarDashboardView: View {
             }
 
             return leftScore > rightScore
+        }
+    }
+
+    private func handleResizePhaseChanged(_ isResizing: Bool) {
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            frozenDashboardState = isResizing ? liveDashboardState : nil
         }
     }
 
@@ -200,6 +235,26 @@ struct MenuBarDashboardView: View {
 
     private func quitApp() {
         NSApplication.shared.terminate(nil)
+    }
+}
+
+private struct DashboardViewState {
+    var snapshots: [ProfileUsageSnapshot]
+    var recommended: ProfileUsageSnapshot?
+    var profiles: [DashboardProfileRowState]
+}
+
+private struct DashboardProfileRowState: Identifiable {
+    var profile: ProviderProfile
+    var usageWindows: [UsageWindow]
+    var isPinned: Bool
+
+    var id: UUID {
+        profile.id
+    }
+
+    var isError: Bool {
+        profile.status == .error
     }
 }
 
@@ -258,23 +313,126 @@ private struct DashboardFooterButtonStyle: ButtonStyle {
     }
 }
 
+private struct DashboardResizableScrollView<Content: View, Footer: View>: View {
+    @AppStorage("dashboard.scrollHeight") private var persistedScrollHeight = Double(DashboardPalette.scrollMinimumHeight)
+    @State private var dragStartHeight: Double?
+    @State private var liveScrollHeight: Double?
+    var onResizePhaseChanged: (Bool) -> Void = { _ in }
+    @ViewBuilder let content: Content
+    @ViewBuilder let footer: Footer
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                content
+            }
+            .padding(.vertical, 3)
+            .frame(height: CGFloat(currentHeight))
+
+            bottomBar
+        }
+        .frame(width: DashboardPalette.contentWidth)
+    }
+
+    private var bottomBar: some View {
+        VStack(spacing: 0) {
+            footer
+            resizeHandle
+        }
+        .background(.thinMaterial)
+    }
+
+    private var resizeHandle: some View {
+        ZStack {
+            Color.clear
+
+            Capsule()
+                .fill(Color.secondary.opacity(0.22))
+                .frame(width: 42, height: 3)
+        }
+        .frame(height: DashboardPalette.resizeHandleHeight)
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+        .gesture(resizeGesture)
+        .help("Drag to resize")
+        .accessibilityLabel("Resize dashboard")
+    }
+
+    private var currentHeight: Double {
+        liveScrollHeight ?? clamp(persistedScrollHeight)
+    }
+
+    private var resizeGesture: some Gesture {
+        DragGesture(minimumDistance: 1, coordinateSpace: .global)
+            .onChanged { value in
+                let startHeight = dragStartHeight ?? clamp(persistedScrollHeight)
+                if dragStartHeight == nil {
+                    dragStartHeight = startHeight
+                    onResizePhaseChanged(true)
+                }
+
+                updateLiveHeight(startHeight + value.translation.height.rounded())
+            }
+            .onEnded { value in
+                let startHeight = dragStartHeight ?? clamp(persistedScrollHeight)
+                commitHeight(startHeight + value.translation.height.rounded())
+            }
+    }
+
+    private func updateLiveHeight(_ height: Double) {
+        let nextHeight = clamp(height)
+        guard liveScrollHeight != nextHeight else {
+            return
+        }
+
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            liveScrollHeight = nextHeight
+        }
+    }
+
+    private func commitHeight(_ height: Double) {
+        let nextHeight = clamp(height)
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            if persistedScrollHeight != nextHeight {
+                persistedScrollHeight = nextHeight
+            }
+            liveScrollHeight = nil
+            dragStartHeight = nil
+        }
+        onResizePhaseChanged(false)
+    }
+
+    private func clamp(_ height: Double) -> Double {
+        min(
+            max(height, Double(DashboardPalette.scrollMinimumHeight)),
+            Double(DashboardPalette.scrollMaximumHeight)
+        )
+    }
+}
+
 private struct DashboardSurfaceModifier: ViewModifier {
+    var isError = false
+
     func body(content: Content) -> some View {
         content
             .padding(DashboardPalette.surfacePadding)
             .background(
-                DashboardPalette.surfaceFill,
+                isError ? DashboardPalette.errorSurfaceFill : DashboardPalette.surfaceFill,
                 in: RoundedRectangle(cornerRadius: DashboardPalette.cornerRadius, style: .continuous)
             )
             .overlay {
                 RoundedRectangle(cornerRadius: DashboardPalette.cornerRadius, style: .continuous)
-                    .strokeBorder(DashboardPalette.hairline, lineWidth: 1)
+                    .strokeBorder(isError ? DashboardPalette.errorSurfaceBorder : DashboardPalette.hairline, lineWidth: 1)
             }
     }
 }
 
 private extension View {
-    func dashboardSurface() -> some View {
-        modifier(DashboardSurfaceModifier())
+    func dashboardSurface(isError: Bool = false) -> some View {
+        modifier(DashboardSurfaceModifier(isError: isError))
     }
 }
